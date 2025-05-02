@@ -7,6 +7,7 @@ using MySqlConnector;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Admin;
+using System.Reflection;
 
 namespace ProximityChat;
 
@@ -15,7 +16,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
     public override string ModuleName => "Proximity Chat API";
     public override string ModuleAuthor => "b0ink";
-    public override string ModuleVersion => typeof(ProximityChat).Assembly.GetName().Version?.ToString() ?? "n/a";
+    public override string ModuleVersion => PluginVersion ?? "n/a";
 
     private MySqlDb? _db;
 
@@ -294,6 +295,10 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         this.Config = config;
     }
+
+    public AssemblyName assemblyName = typeof(ProximityChat).Assembly.GetName();
+    public string? AssemblyVersion => assemblyName.Version?.ToString();
+    public string? PluginVersion => AssemblyVersion?.Remove(AssemblyVersion.Length - 2);
 }
 
 static class VectorExtensions
