@@ -46,11 +46,11 @@ jobs:
           type: "zip"
           filename: "${{ env.PROJECT_NAME }}-${{ env.VERSION }}.zip"
           path: |
-            ${{ env.OUTPUT_PATH }}/ProximityChat.dll
-            ${{ env.OUTPUT_PATH }}/ProximityChat.pdb
-            ${{ env.OUTPUT_PATH }}/ProximityChat.deps.json
-            ${{ env.OUTPUT_PATH }}/MySqlConnector.dll
-            ${{ env.OUTPUT_PATH }}/Nexd.MySQL.dll
+            ${{ github.workspace }}/bin/ProximityChat/ProximityChat.dll
+            ${{ github.workspace }}/bin/ProximityChat/ProximityChat.pdb
+            ${{ github.workspace }}/bin/ProximityChat/ProximityChat.deps.json
+            ${{ github.workspace }}/bin/ProximityChat/MySqlConnector.dll
+            ${{ github.workspace }}/bin/ProximityChat/Nexd.MySQL.dll
 
       - name: Release
         uses: ncipollo/release-action@v1.12.0
