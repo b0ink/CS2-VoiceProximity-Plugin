@@ -10,6 +10,7 @@ on:
 env:
   PROJECT_NAME: "ProximityChat"
   OUTPUT_PATH: "./bin/ProximityChat"
+  RELEASE_PATH: "./ProximityChat"
 
 jobs:
   build:
@@ -37,20 +38,21 @@ jobs:
       - name: Build
         run: dotnet publish -c Release -o ${{ env.OUTPUT_PATH }} -p:Version=${{ env.VERSION }}
 
-      - name: List files after build
-        run: ls -R ${{ github.workspace }}/bin/ProximityChat
+      - name: Copy specific files to release folder
+        run: |
+          mkdir -p ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/ProximityChat.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/ProximityChat.pdb ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/ProximityChat.deps.json ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/MySqlConnector.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/Nexd.MySQL.dll ${{ env.RELEASE_PATH }}
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5
         with:
           type: "zip"
           filename: "${{ env.PROJECT_NAME }}-${{ env.VERSION }}.zip"
-          path: |
-            ${{ github.workspace }}/bin/ProximityChat/ProximityChat.dll
-            ${{ github.workspace }}/bin/ProximityChat/ProximityChat.pdb
-            ${{ github.workspace }}/bin/ProximityChat/ProximityChat.deps.json
-            ${{ github.workspace }}/bin/ProximityChat/MySqlConnector.dll
-            ${{ github.workspace }}/bin/ProximityChat/Nexd.MySQL.dll
+          path: ${{ env.RELEASE_PATH }}
 
       - name: Release
         uses: ncipollo/release-action@v1.12.0
