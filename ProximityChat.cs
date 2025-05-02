@@ -19,11 +19,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     public override string ModuleVersion => PluginVersion ?? "n/a";
 
     private MySqlDb? _db;
-
     public Config Config { get; set; } = new();
 
-
-    //TODO: relay position data of the spectator when theyre dead
     public override void Load(bool hotReload)
     {
         _db = new(Config.DatabaseHost ?? string.Empty, Config.DatabaseUser ?? string.Empty, Config.DatabasePassword ?? string.Empty, Config.DatabaseName ?? string.Empty, Config.DatabasePort);
@@ -198,7 +195,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var pawn = player!.PlayerPawn.Value;
         if (useObserverPawn)
         {
-            // This is only effect if cameras are forced for first person
+            // This is only effective if cameras are forced for first person
             // TODO: find another method to get positions of players in freecam
             var observingTarget = GetObserverTarget(player);
             if (observingTarget != null && IsValid(observingTarget))
