@@ -21,6 +21,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     private MySqlDb? _db;
     public Config Config { get; set; } = new();
 
+    public Dictionary<int, float> LastDeathTime = new();
+
     public override void Load(bool hotReload)
     {
         _db = new(Config.DatabaseHost ?? string.Empty, Config.DatabaseUser ?? string.Empty, Config.DatabasePassword ?? string.Empty, Config.DatabaseName ?? string.Empty, Config.DatabasePort);
@@ -119,7 +121,15 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             bool useObserverPawn = false;
             if (player.PlayerPawn.Value!.LifeState != (byte)LifeState_t.LIFE_ALIVE)
             {
-                useObserverPawn = true;
+                if (player.UserId != null && LastDeathTime.ContainsKey((int)player.UserId))
+                {
+                    // Keep the camera position in the same spot for a few seconds before teleporting to the player they're spectating
+                    float timeSinceDeath = Server.CurrentTime - LastDeathTime[(int)player.UserId];
+                    if(timeSinceDeath >= 3)
+                    {
+                        useObserverPawn = true;
+                    }
+                }
             }
 
             SavePlayerData(_db, player, useObserverPawn);
@@ -179,6 +189,20 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
+
+    [GameEventHandler]
+    public HookResult Event_PlayerDeath(EventPlayerDeath @event, GameEventInfo info)
+    {
+        var player = @event.Userid;
+        if(player == null || !IsValid(player) || player.UserId == null)
+        {
+            return HookResult.Continue;
+        }
+
+        LastDeathTime[(int)player.UserId] = Server.CurrentTime;
+
+        return HookResult.Continue;
+    }
 
     public void SavePlayerData(MySqlDb? db, CCSPlayerController? player, bool useObserverPawn)
     {
