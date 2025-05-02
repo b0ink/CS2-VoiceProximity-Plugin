@@ -38,7 +38,7 @@ jobs:
         run: dotnet publish -c Release -o ${{ env.OUTPUT_PATH }} -p:Version=${{ env.VERSION }}
 
       - name: List files after build
-        run: ls -R ${{ env.OUTPUT_PATH }}
+        run: ls -R ${{ github.workspace }}/bin/ProximityChat
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5
