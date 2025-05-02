@@ -31,19 +31,17 @@ jobs:
         id: extract_version
         run: echo "version=$(grep -oPm1 '(?<=<Version>)[^<]+' ProximityChat.csproj)" >> $GITHUB_OUTPUT
 
-      - name: Use version
-        env:
-          VERSION: ${{ steps.extract_version.outputs.version }}
-        run: echo "Building version $VERSION"
+      - name: Set version env
+        run: echo "VERSION=${{ steps.extract_version.outputs.version }}" >> $GITHUB_ENV
 
       - name: Build
-        run: dotnet publish -c Release -o ${{ env.OUTPUT_PATH }} -p:Version=${{ $VERSION }}
+        run: dotnet publish -c Release -o ${{ env.OUTPUT_PATH }} -p:Version=${{ env.VERSION }}
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5
         with:
           type: "zip"
-          filename: "${{ env.PROJECT_NAME }}-${{ $VERSION }}.zip"
+          filename: "${{ env.PROJECT_NAME }}-${{ env.VERSION }}.zip"
           path: |
             ${{ env.OUTPUT_PATH }}/ProximityChat.dll
             ${{ env.OUTPUT_PATH }}/ProximityChat.pdb
@@ -54,8 +52,8 @@ jobs:
       - name: Release
         uses: ncipollo/release-action@v1.12.0
         with:
-          artifacts: ${{ env.PROJECT_NAME }}-${{ $VERSION }}.zip
-          name: "Version ${{ $VERSION }}"
-          tag: "v${{ $VERSION }}"
+          artifacts: ${{ env.PROJECT_NAME }}-${{ env.VERSION }}.zip
+          name: "Version ${{ env.VERSION }}"
+          tag: "v${{ env.VERSION }}"
           body: |
             Place the `ProximityChat` plugin folder in `game/csgo/addons/counterstrikesharp/plugins/`
