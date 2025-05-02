@@ -54,7 +54,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             return null;
         }
 
-        var observerPawn = observer.ObserverPawn?.Value;
+        var observerPawn = observer!.ObserverPawn?.Value;
         if (observerPawn == null)
         {
             return null;
@@ -93,8 +93,17 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public Vector? GetCoordinatePlayerIsLookingAt(CCSPlayerController? player)
     {
-        if(!IsValid(player)) return null;
+        if (!IsValid(player))
+        {
+            return null;
+        }
+
         var origin = GetEyePosition(player!.PlayerPawn.Value!);
+        if(origin == null)
+        {
+            return null;
+        }
+
         var angle = player.PlayerPawn.Value!.EyeAngles;
 
         Vector _forward = new();
@@ -108,8 +117,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         foreach (var player in Utilities.GetPlayers().Where(IsValid))
         {
-            //if (player.SteamID == 0) continue;
-            // check alive state
+            //if (player.SteamID == 0) continue; // ignore bots
+
             bool useObserverPawn = false;
             if (player.PlayerPawn.Value!.LifeState != (byte)LifeState_t.LIFE_ALIVE)
             {
@@ -122,6 +131,12 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public static void CreateTable(MySqlDb? db)
     {
+        if (db == null)
+        {
+            Console.WriteLine("Error: database is not initialised");
+            return;
+        }
+
         Task.Run(async () =>
         {
             try
@@ -138,9 +153,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                         `OriginX` float NOT NULL,
                         `OriginY` float NOT NULL,
                         `OriginZ` float NOT NULL,
-                        `AngleX` float NOT NULL,
-                        `AngleY` float NOT NULL,
-                        `AngleZ` float NOT NULL,
                         `LookAtX` float NOT NULL,
                         `LookAtY` float NOT NULL,
                         `LookAtZ` float NOT NULL,
@@ -151,7 +163,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                         UNIQUE KEY `SteamId` (`SteamId`)
                     );
                 ");
-
 
                 if (result != 0)
                 {
@@ -190,25 +201,23 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             // This is only effect if cameras are forced for first person
             // TODO: find another method to get positions of players in freecam
             var observingTarget = GetObserverTarget(player);
-            if(observingTarget != null && IsValid(observingTarget))
+            if (observingTarget != null && IsValid(observingTarget))
             {
                 pawn = observingTarget.PlayerPawn.Value;
             }
         }
 
-
         if (pawn == null || !pawn.IsValid)
         {
             return;
         }
-        //var origin = pawn.AbsOrigin;
+
         var origin = GetEyePosition(pawn);
         var angles = pawn.EyeAngles;
         if (origin == null || angles == null)
         {
             return;
         }
-        string positionData = $"{origin.X},{origin.Y},{origin.Z},{angles.X},{angles.Y},{angles.Z}";
 
         var SteamId = MySqlHelper.EscapeString(player!.SteamID.ToString());
         var Name = MySqlHelper.EscapeString(player.PlayerName);
@@ -217,11 +226,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var OriginY = origin.Y.ToString();
         var OriginZ = origin.Z.ToString();
 
-        var AngleX = angles.X.ToString();
-        var AngleY = angles.Y.ToString();
-        var AngleZ = angles.Z.ToString();
-
-        var LookAt = GetCoordinatePlayerIsLookingAt(player);
+        var LookAt = GetCoordinatePlayerIsLookingAt(player)!;
         var LookAtX = LookAt.X.ToString();
         var LookAtY = LookAt.Y.ToString();
         var LookAtZ = LookAt.Z.ToString();
@@ -229,44 +234,28 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = (int)player.TeamNum;
-        var tteam = player.Team;
 
-        MySqlQueryValue values = new MySqlQueryValue()
-                                .Add("SteamId", player!.SteamID.ToString())
-                                .Add("Name", player.PlayerName)
-                                .Add("OriginX", OriginX)
-                                .Add("OriginY", OriginY)
-                                .Add("OriginZ", OriginZ)
-                                .Add("AngleX", AngleX)
-                                .Add("AngleY", AngleY)
-                                .Add("AngleZ", AngleZ)
-                                .Add("LookAtX", LookAtX)
-                                .Add("LookAtY", LookAtY)
-                                .Add("LookAtZ", LookAtZ)
-                                .Add("IsAlive", playerIsAlive.ToString())
-                                .Add("Team", Team.ToString());
-
-
+        var values =
+        new MySqlQueryValue()
+            .Add("SteamId", player!.SteamID.ToString())
+            .Add("Name", player.PlayerName)
+            .Add("OriginX", OriginX)
+            .Add("OriginY", OriginY)
+            .Add("OriginZ", OriginZ)
+            .Add("LookAtX", LookAtX)
+            .Add("LookAtY", LookAtY)
+            .Add("LookAtZ", LookAtZ)
+            .Add("IsAlive", playerIsAlive.ToString())
+            .Add("Team", Team.ToString());
 
         try
         {
-
-        //    var query = $@"
-        //INSERT INTO `ProximityData` 
-        //(`SteamId`, `Name`, `OriginX`, `OriginY`, `OriginZ`, `AngleX`, `AngleY`, `AngleZ`, `IsAlive`, `Team`)
-        //VALUES
-        //('{SteamId}', '{Name}', '{OriginX}', '{OriginY}', '{OriginZ}', '{AngleX}', '{AngleY}', '{AngleZ}', {playerIsAlive}, {Team})
-        //ON DUPLICATE KEY UPDATE
-        //`LastUpdated` = CURRENT_TIMESTAMP()";
             db!.Table("ProximityData").InsertIfNotExist(values, $@"
                 `SteamId` = '{SteamId}',
                 `Name` = '{Name}',
                 `OriginX` = '{OriginX}',
                 `OriginY` = '{OriginY}',
                 `OriginZ` = '{OriginZ}',
-                `AngleX` = '{AngleX}',
-                `AngleY` = '{AngleY}',
-                `AngleZ` = '{AngleZ}',
                 `LookAtX` = '{LookAtX}',
                 `LookAtY` = '{LookAtY}',
                 `LookAtZ` = '{LookAtZ}',
@@ -274,9 +263,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 `Team` = '{Team}',
                 `LastUpdated` = CURRENT_TIMESTAMP()
             ");
-
-            //db!.Table("ProximityData").InsertIfNotExistAsync(values, $"`Name` = '{player.PlayerName}', `LastUpdated` = CURRENT_TIMESTAMP(), `Data` = '{positionData}'");
-
         }
         catch (Exception ex)
         {
@@ -333,8 +319,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     }
 
     public AssemblyName assemblyName = typeof(ProximityChat).Assembly.GetName();
-    public string? AssemblyVersion => assemblyName.Version?.ToString();
-    public string? PluginVersion => AssemblyVersion?.Remove(AssemblyVersion.Length - 2);
+    public string? AssemblyVersion => assemblyName.Version?.ToString(); // Version: x.x.x.x
+    public string? PluginVersion => AssemblyVersion?.Remove(AssemblyVersion.Length - 2); // truncate to x.x.x
 }
 
 static class VectorExtensions
