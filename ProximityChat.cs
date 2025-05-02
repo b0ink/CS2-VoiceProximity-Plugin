@@ -47,6 +47,50 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     }
 
 
+    public CCSPlayerController? GetObserverTarget(CCSPlayerController? observer)
+    {
+        if (!IsValid(observer))
+        {
+            return null;
+        }
+
+        var observerPawn = observer.ObserverPawn?.Value;
+        if (observerPawn == null)
+        {
+            return null;
+        }
+
+        var observedEntity = observerPawn.ObserverServices?.ObserverTarget?.Value;
+        if (observedEntity == null)
+        {
+            return null;
+        }
+
+        if (observedEntity.DesignerName != "player")
+        {
+            return null;
+        }
+        var observedPlayerPawn = observedEntity.As<CCSPlayerPawn>();
+
+        if (observedPlayerPawn != null && observedPlayerPawn.IsValid)
+        {
+            var controller = observedPlayerPawn.Controller.Value;
+            if (controller == null)
+            {
+                return null;
+            }
+
+            var playerController = controller.As<CCSPlayerController>();
+            if (IsValid(playerController))
+            {
+                return playerController;
+            }
+        }
+
+        return null;
+    }
+
+
     public Vector? GetCoordinatePlayerIsLookingAt(CCSPlayerController? player)
     {
         if(!IsValid(player)) return null;
@@ -70,8 +114,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             if (player.PlayerPawn.Value!.LifeState != (byte)LifeState_t.LIFE_ALIVE)
             {
                 useObserverPawn = true;
-                useObserverPawn = false;
-                Console.WriteLine("saving observer pawn");
             }
 
             SavePlayerData(_db, player, useObserverPawn);
@@ -141,26 +183,20 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             return;
         }
+
         var pawn = player!.PlayerPawn.Value;
         if (useObserverPawn)
         {
-            //pawn = player.Pawn.Value as CCSPlayerPawn;
-            //var observer = player.Controller.ObserverPawn?.Value?.Controller?.Value;
-            var observer = player.ObserverPawn.Value?.ObserverServices?.ObserverTarget.Value;
-            if (observer != null && observer.IsValid)
+            // This is only effect if cameras are forced for first person
+            // TODO: find another method to get positions of players in freecam
+            var observingTarget = GetObserverTarget(player);
+            if(observingTarget != null && IsValid(observingTarget))
             {
-                if (observer.DesignerName == "player")
-                {
-                    pawn = observer.As<CCSPlayerController>().PlayerPawn.Value;
-
-                }
-            }
-            //.Controller.Value
-
-            if (observer != null && observer.IsValid)
-            {
+                pawn = observingTarget.PlayerPawn.Value;
             }
         }
+
+
         if (pawn == null || !pawn.IsValid)
         {
             return;
