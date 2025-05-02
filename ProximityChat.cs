@@ -223,7 +223,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var OriginY = origin.Y.ToString();
         var OriginZ = origin.Z.ToString();
 
-        var LookAt = GetCoordinatePlayerIsLookingAt(player)!;
+        var LookAt = GetCoordinatePlayerIsLookingAt(pawn.OriginalController.Value)!;
         var LookAtX = LookAt.X.ToString();
         var LookAtY = LookAt.Y.ToString();
         var LookAtZ = LookAt.Z.ToString();
