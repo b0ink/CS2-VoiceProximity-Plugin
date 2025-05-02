@@ -37,6 +37,9 @@ jobs:
       - name: Build
         run: dotnet publish -c Release -o ${{ env.OUTPUT_PATH }} -p:Version=${{ env.VERSION }}
 
+      - name: List files after build
+        run: ls -R ${{ env.OUTPUT_PATH }}
+
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5
         with:
