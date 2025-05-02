@@ -6,6 +6,8 @@ name: .NET
 on:
   push:
     branches: ["main"]
+    paths:
+      - "ProximityChat.csproj"
 
 env:
   PROJECT_NAME: "ProximityChat"
