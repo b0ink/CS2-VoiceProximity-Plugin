@@ -218,11 +218,12 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 pawn = observingTarget.Pawn.Value;
             }
 
-            var vAngle = player.Pawn.Value!.V_angle;
-            var c4Position = player.Pawn.Value.AbsOrigin;
-
             if (GetObserverEntity(player)?.DesignerName == "planted_c4")
             {
+
+                var vAngle = player.Pawn.Value!.V_angle.Clone();
+                var c4Position = player.Pawn.Value!.AbsOrigin.Clone();
+
                 // Calculate third person position when spectating planted c4
                 Vector forward = new();
                 NativeAPI.AngleVectors(vAngle.Handle, forward.Handle, 0, 0);
@@ -254,7 +255,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (!gotOriginAndAngles)
         {
             var origin = GetEyePosition(pawn);
-            var angles = pawn.V_angle;
+            var angles = pawn.V_angle.Clone();
             if (origin == null || angles == null)
             {
                 return;
