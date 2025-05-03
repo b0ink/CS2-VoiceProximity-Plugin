@@ -21,8 +21,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     private MySqlDb? _db;
     public Config Config { get; set; } = new();
 
-    public Dictionary<int, float> LastDeathTime = new();
-
     public override void Load(bool hotReload)
     {
         _db = new(Config.DatabaseHost ?? string.Empty, Config.DatabaseUser ?? string.Empty, Config.DatabasePassword ?? string.Empty, Config.DatabaseName ?? string.Empty, Config.DatabasePort);
@@ -42,11 +40,15 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     public void Command_savepositions(CCSPlayerController? caller, CommandInfo info)
     {
         info.ReplyToCommand($"DEBUG: Saving player positions...");
-        SaveAllPlayersPositions();
+        AddTimer(0.1f, () =>
+        {
+            SaveAllPlayersPositions();
+        }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.STOP_ON_MAPCHANGE | CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
     }
 
 
-    public CCSPlayerController? GetObserverTarget(CCSPlayerController? observer)
+
+    public CBaseEntity? GetObserverEntity(CCSPlayerController? observer)
     {
         if (!IsValid(observer))
         {
@@ -60,7 +62,18 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
 
         var observedEntity = observerPawn.ObserverServices?.ObserverTarget?.Value;
-        if (observedEntity == null)
+        if (observedEntity != null && observedEntity.IsValid)
+        {
+            return observedEntity;
+        }
+
+        return null;
+    }
+
+    public CCSPlayerController? GetObserverTarget(CCSPlayerController? observer)
+    {
+        var observedEntity = GetObserverEntity(observer);
+        if (observedEntity == null || !observedEntity.IsValid)
         {
             return null;
         }
@@ -69,6 +82,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             return null;
         }
+
         var observedPlayerPawn = observedEntity.As<CCSPlayerPawn>();
 
         if (observedPlayerPawn != null && observedPlayerPawn.IsValid)
@@ -90,27 +104,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     }
 
 
-    public Vector? GetCoordinatePlayerIsLookingAt(CCSPlayerController? player)
-    {
-        if (!IsValid(player))
-        {
-            return null;
-        }
 
-        var origin = GetEyePosition(player!.PlayerPawn.Value!);
-        if(origin == null)
-        {
-            return null;
-        }
-
-        var angle = player.PlayerPawn.Value!.EyeAngles;
-
-        Vector _forward = new();
-        NativeAPI.AngleVectors(angle.Handle, _forward.Handle, 0, 0);
-        Vector _endOrigin = new(origin.X + _forward.X * 8192, origin.Y + _forward.Y * 8192, origin.Z + _forward.Z * 8192);
-
-        return _endOrigin;
-    }
 
     public void SaveAllPlayersPositions()
     {
@@ -121,15 +115,13 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             bool useObserverPawn = false;
             if (player.PlayerPawn.Value!.LifeState != (byte)LifeState_t.LIFE_ALIVE)
             {
-                if (player.UserId != null && LastDeathTime.ContainsKey((int)player.UserId))
+                // Keep the camera position in the same spot for a few seconds before teleporting to the player they're spectating
+                float timeSinceDeath = Server.CurrentTime - player.PlayerPawn.Value.DeathTime;
+                if (timeSinceDeath >= 3)
                 {
-                    // Keep the camera position in the same spot for a few seconds before teleporting to the player they're spectating
-                    float timeSinceDeath = Server.CurrentTime - LastDeathTime[(int)player.UserId];
-                    if(timeSinceDeath >= 3)
-                    {
-                        useObserverPawn = true;
-                    }
+                    useObserverPawn = true;
                 }
+
             }
 
             SavePlayerData(_db, player, useObserverPawn);
@@ -190,20 +182,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     }
 
 
-    [GameEventHandler]
-    public HookResult Event_PlayerDeath(EventPlayerDeath @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
-        if(player == null || !IsValid(player) || player.UserId == null)
-        {
-            return HookResult.Continue;
-        }
-
-        LastDeathTime[(int)player.UserId] = Server.CurrentTime;
-
-        return HookResult.Continue;
-    }
-
     public void SavePlayerData(MySqlDb? db, CCSPlayerController? player, bool useObserverPawn)
     {
         if (db == null)
@@ -216,7 +194,20 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             return;
         }
 
-        var pawn = player!.PlayerPawn.Value;
+        string OriginX = "";
+        string OriginY = "";
+        string OriginZ = "";
+
+        string LookAtX = "";
+        string LookAtY = "";
+        string LookAtZ = "";
+
+
+        var SteamId = MySqlHelper.EscapeString(player!.SteamID.ToString());
+        var Name = MySqlHelper.EscapeString(player.PlayerName);
+
+        CBasePlayerPawn? pawn = player!.PlayerPawn.Value;
+        bool gotOriginAndAngles = false;
         if (useObserverPawn)
         {
             // This is only effective if cameras are forced for first person
@@ -224,7 +215,34 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             var observingTarget = GetObserverTarget(player);
             if (observingTarget != null && IsValid(observingTarget))
             {
-                pawn = observingTarget.PlayerPawn.Value;
+                pawn = observingTarget.Pawn.Value;
+            }
+
+            var vAngle = player.Pawn.Value!.V_angle;
+            var c4Position = player.Pawn.Value.AbsOrigin;
+
+            if (GetObserverEntity(player)?.DesignerName == "planted_c4")
+            {
+                // Calculate third person position when spectating planted c4
+                Vector forward = new();
+                NativeAPI.AngleVectors(vAngle.Handle, forward.Handle, 0, 0);
+
+                // TODO: Could we TraceRay to the c4 to detect if cameraPos is inside an object, and reduce camDistance until the trace is clear?
+                const float camDistance = 100;
+                float lowestZ = c4Position.Z + 25;
+
+                Vector offset = new(-forward.X * camDistance, -forward.Y * camDistance, -forward.Z * camDistance);
+                Vector cameraPos = new(c4Position.X + offset.X, c4Position.Y + offset.Y, c4Position.Z + offset.Z);
+
+                OriginX = $"{cameraPos.X}";
+                OriginY = $"{cameraPos.Y}";
+                OriginZ = $"{(cameraPos.Z < lowestZ ? lowestZ : cameraPos.Z)}"; // Prevent the camera from going under the floor
+
+                LookAtX = $"{c4Position.X}";
+                LookAtY = $"{c4Position.Y}";
+                LookAtZ = $"{c4Position.Z}";
+
+                gotOriginAndAngles = true;
             }
         }
 
@@ -233,24 +251,27 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             return;
         }
 
-        var origin = GetEyePosition(pawn);
-        var angles = pawn.EyeAngles;
-        if (origin == null || angles == null)
+        if (!gotOriginAndAngles)
         {
-            return;
+            var origin = GetEyePosition(pawn);
+            var angles = pawn.V_angle;
+            if (origin == null || angles == null)
+            {
+                return;
+            }
+
+            OriginX = origin.X.ToString();
+            OriginY = origin.Y.ToString();
+            OriginZ = origin.Z.ToString();
+
+            var LookAt = CalculateForward(origin, angles)!;
+            LookAtX = LookAt.X.ToString();
+            LookAtY = LookAt.Y.ToString();
+            LookAtZ = LookAt.Z.ToString();
         }
 
-        var SteamId = MySqlHelper.EscapeString(player!.SteamID.ToString());
-        var Name = MySqlHelper.EscapeString(player.PlayerName);
 
-        var OriginX = origin.X.ToString();
-        var OriginY = origin.Y.ToString();
-        var OriginZ = origin.Z.ToString();
 
-        var LookAt = GetCoordinatePlayerIsLookingAt(pawn.OriginalController.Value)!;
-        var LookAtX = LookAt.X.ToString();
-        var LookAtY = LookAt.Y.ToString();
-        var LookAtZ = LookAt.Z.ToString();
 
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
@@ -308,7 +329,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         if (player != null && IsValid(player))
         {
-            if (player!.PlayerPawn.Value!.LifeState == (byte)LifeState_t.LIFE_ALIVE)
+            if (player!.Pawn.Value!.LifeState == (byte)LifeState_t.LIFE_ALIVE)
             {
                 return true;
             }
@@ -317,12 +338,32 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     }
 
 
+    public Vector? CalculateForward(Vector origin, QAngle angle)
+    {
+        Vector _forward = new();
+        NativeAPI.AngleVectors(angle.Handle, _forward.Handle, 0, 0);
+        Vector _endOrigin = new(origin.X + _forward.X * 8192, origin.Y + _forward.Y * 8192, origin.Z + _forward.Z * 8192);
+        return _endOrigin;
+    }
+
     /// <summary>
     /// Gets the eye position of the player pawn in world coordinates.
     /// </summary>
     /// <param name="playerPawn">The player pawn to get the eye position from.</param>
     /// <returns>A <see cref="Vector"/> representing the eye position, or null if the position couldn't be determined.</returns>
     public Vector? GetEyePosition(CCSPlayerPawn playerPawn)
+    {
+        return playerPawn.AbsOrigin is not { } absOrigin || playerPawn.CameraServices is not { } cameraServices
+            ? null
+            : new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
+    }
+
+    /// <summary>
+    /// Gets the eye position of the player pawn in world coordinates.
+    /// </summary>
+    /// <param name="playerPawn">The player pawn to get the eye position from.</param>
+    /// <returns>A <see cref="Vector"/> representing the eye position, or null if the position couldn't be determined.</returns>
+    public Vector? GetEyePosition(CBasePlayerPawn playerPawn)
     {
         return playerPawn.AbsOrigin is not { } absOrigin || playerPawn.CameraServices is not { } cameraServices
             ? null
