@@ -1,12 +1,14 @@
 # CS2 Voice Proximity (Plugin)
 
+**Note: This plugin <ins>does not directly implement proximity chat features</ins>. Instead, it relays player position data to the [Voice Chat App](https://github.com/b0ink/CS2-VoiceProximity-Client), which handles the calculation of positional audio and sound occlusion.**
+
 ## Description
 
 This plugin saves the positions and camera angles of players into your database and is used by the API Server together with the Electron App Client to calculate positional audio and sound occlusion.
 
 ## Links
 
-Electron App Client (https://github.com/b0ink/CS2-VoiceProximity-Client)
+Voice Chat Client (https://github.com/b0ink/CS2-VoiceProximity-Client)
 
 API Server (https://github.com/b0ink/CS2-VoiceProximity-Server)
 
