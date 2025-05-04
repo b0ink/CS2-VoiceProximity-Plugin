@@ -222,7 +222,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             {
 
                 var vAngle = player.Pawn.Value!.V_angle.Clone();
-                var c4Position = player.Pawn.Value!.AbsOrigin.Clone();
+                var c4Position = player.Pawn.Value!.AbsOrigin?.Clone();
 
                 // Calculate third person position when spectating planted c4
                 Vector forward = new();
@@ -254,7 +254,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         if (!gotOriginAndAngles)
         {
-            var origin = GetEyePosition(pawn);
+            var origin = GetEyePosition(pawn)?.Clone();
             var angles = pawn.V_angle.Clone();
             if (origin == null || angles == null)
             {
@@ -347,29 +347,16 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         return _endOrigin;
     }
 
-    /// <summary>
-    /// Gets the eye position of the player pawn in world coordinates.
-    /// </summary>
-    /// <param name="playerPawn">The player pawn to get the eye position from.</param>
-    /// <returns>A <see cref="Vector"/> representing the eye position, or null if the position couldn't be determined.</returns>
-    public Vector? GetEyePosition(CCSPlayerPawn playerPawn)
+    public Vector? GetEyePosition<T>(T? playerPawn) where T : CBasePlayerPawn
     {
-        return playerPawn.AbsOrigin is not { } absOrigin || playerPawn.CameraServices is not { } cameraServices
-            ? null
-            : new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
+        if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null || playerPawn.AbsOrigin == null)
+            return null;
+
+        var absOrigin = playerPawn.AbsOrigin.Clone();
+        var cameraServices = playerPawn.CameraServices;
+        return new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
     }
 
-    /// <summary>
-    /// Gets the eye position of the player pawn in world coordinates.
-    /// </summary>
-    /// <param name="playerPawn">The player pawn to get the eye position from.</param>
-    /// <returns>A <see cref="Vector"/> representing the eye position, or null if the position couldn't be determined.</returns>
-    public Vector? GetEyePosition(CBasePlayerPawn playerPawn)
-    {
-        return playerPawn.AbsOrigin is not { } absOrigin || playerPawn.CameraServices is not { } cameraServices
-            ? null
-            : new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
-    }
 
     public override void Unload(bool hotReload)
     {
