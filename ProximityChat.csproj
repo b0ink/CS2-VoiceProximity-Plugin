@@ -11,6 +11,7 @@
 
     <ItemGroup>
         <PackageReference Include="CounterStrikeSharp.API" Version="1.0.316" />
-        <PackageReference Include="Nexd.MySQL" Version="1.0.2" />
+        <PackageReference Include="MessagePack" Version="3.1.3" />
+        <PackageReference Include="SocketIOClient" Version="3.1.2" />
     </ItemGroup>
 </Project>

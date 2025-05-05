@@ -1,16 +1,16 @@
-﻿using CounterStrikeSharp.API;
+﻿using System.Reflection;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Core.Attributes.Registration;
+using CounterStrikeSharp.API.Modules.Admin;
+using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
-using Nexd.MySQL;
-using MySqlConnector;
-using CounterStrikeSharp.API.Core.Attributes.Registration;
-using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Admin;
-using System.Reflection;
+using SocketIOClient;
+using MessagePack;
+using CounterStrikeSharp.API.Modules.Timers;
 
 namespace ProximityChat;
-
 
 public class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
@@ -18,20 +18,56 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     public override string ModuleAuthor => "b0ink";
     public override string ModuleVersion => PluginVersion ?? "n/a";
 
-    private MySqlDb? _db;
     public Config Config { get; set; } = new();
 
+    public Dictionary<ulong, PlayerData> PlayerData = new();
+
+    private CancellationTokenSource? _cts;
+    private Task? _socketTask;
+    public SocketIOClient.SocketIO? socket = null;
     public override void Load(bool hotReload)
     {
-        _db = new(Config.DatabaseHost ?? string.Empty, Config.DatabaseUser ?? string.Empty, Config.DatabasePassword ?? string.Empty, Config.DatabaseName ?? string.Empty, Config.DatabasePort);
-        CreateTable(_db);
-        RegisterListener<Listeners.OnMapStart>(mapName =>
+        if (_cts != null)
         {
-            AddTimer(0.1f, () =>
-            {
-                SaveAllPlayersPositions();
-            }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.STOP_ON_MAPCHANGE | CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
+            _cts.Cancel();
+            //_socketTask?.Wait(); // optionally await
+        }
+        _cts = new CancellationTokenSource();
+        _socketTask = Task.Run(() => InitSocketIO(_cts.Token));
+
+
+        //RegisterListener<Listeners.OnMapStart>(mapName =>
+        //{
+        //    AddTimer(0.1f, () =>
+        //    {
+        //        SaveAllPlayersPositions();
+        //    }, TimerFlags.STOP_ON_MAPCHANGE | TimerFlags.REPEAT);
+        //});
+
+
+        RegisterListener<Listeners.OnTick>(() =>
+        {
+            SaveAllPlayersPositions();
         });
+
+    }
+
+    private async Task InitSocketIO(CancellationToken token)
+    {
+        socket = new SocketIOClient.SocketIO(Config.SocketURL);
+        socket.OnConnected += async (sender, e) =>
+        {
+            _ = Task.Run(async () =>
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
+                    await socket.EmitAsync("server-data", "proximity-chat", payload);
+                    await Task.Delay(100, token);
+                }
+            }, token);
+        };
+        await socket.ConnectAsync();
     }
 
 
@@ -39,14 +75,9 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     [RequiresPermissions("#css/admin")]
     public void Command_savepositions(CCSPlayerController? caller, CommandInfo info)
     {
-        info.ReplyToCommand($"DEBUG: Saving player positions...");
-        AddTimer(0.1f, () =>
-        {
-            SaveAllPlayersPositions();
-        }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.STOP_ON_MAPCHANGE | CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
+        // Debug
+        SaveAllPlayersPositions();
     }
-
-
 
     public CBaseEntity? GetObserverEntity(CCSPlayerController? observer)
     {
@@ -103,9 +134,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         return null;
     }
 
-
-
-
     public void SaveAllPlayersPositions()
     {
         foreach (var player in Utilities.GetPlayers().Where(IsValid))
@@ -121,90 +149,24 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 {
                     useObserverPawn = true;
                 }
-
             }
-
-            SavePlayerData(_db, player, useObserverPawn);
         }
     }
 
-    public static void CreateTable(MySqlDb? db)
+
+    public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)
     {
-        if (db == null)
-        {
-            Console.WriteLine("Error: database is not initialised");
-            return;
-        }
-
-        Task.Run(async () =>
-        {
-            try
-            {
-                Console.WriteLine("Dropping existing ProximityData table...");
-                await db.ExecuteNonQueryAsync("DROP TABLE IF EXISTS `ProximityData`;");
-
-                Console.WriteLine("Creating table...");
-                int result = await db.ExecuteNonQueryAsync(@"
-                    CREATE TABLE `ProximityData` (
-                        `Id` int(11) NOT NULL AUTO_INCREMENT,
-                        `SteamId` varchar(18) NOT NULL,
-                        `Name` varchar(128) NOT NULL,
-                        `OriginX` float NOT NULL,
-                        `OriginY` float NOT NULL,
-                        `OriginZ` float NOT NULL,
-                        `LookAtX` float NOT NULL,
-                        `LookAtY` float NOT NULL,
-                        `LookAtZ` float NOT NULL,
-                        `IsAlive` TINYINT(1) NOT NULL,
-                        `Team` int NOT NULL,
-                        `LastUpdated` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-                        PRIMARY KEY (`Id`),
-                        UNIQUE KEY `SteamId` (`SteamId`)
-                    );
-                ");
-
-                if (result != 0)
-                {
-                    Console.WriteLine("Table creation completed successfully.");
-                }
-                else
-                {
-                    Console.WriteLine("Warning: table creation query returned 0.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.BackgroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Error during table creation: {ex}");
-                Console.ResetColor();
-            }
-        });
-    }
-
-
-    public void SavePlayerData(MySqlDb? db, CCSPlayerController? player, bool useObserverPawn)
-    {
-        if (db == null)
-        {
-            return;
-        }
-
         if (!IsValid(player))
         {
             return;
         }
 
-        string OriginX = "";
-        string OriginY = "";
-        string OriginZ = "";
-
-        string LookAtX = "";
-        string LookAtY = "";
-        string LookAtZ = "";
-
-
-        var SteamId = MySqlHelper.EscapeString(player!.SteamID.ToString());
-        var Name = MySqlHelper.EscapeString(player.PlayerName);
+        float OriginX = 0f;
+        float OriginY = 0f;
+        float OriginZ = 0f;
+        float LookAtX = 0f;
+        float LookAtY = 0f;
+        float LookAtZ = 0f;
 
         CBasePlayerPawn? pawn = player!.PlayerPawn.Value;
         bool gotOriginAndAngles = false;
@@ -220,7 +182,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
             if (GetObserverEntity(player)?.DesignerName == "planted_c4")
             {
-
                 var vAngle = player.Pawn.Value!.V_angle.Clone();
                 var c4Position = player.Pawn.Value!.AbsOrigin?.Clone();
 
@@ -232,16 +193,26 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 const float camDistance = 100;
                 float lowestZ = c4Position.Z + 25;
 
-                Vector offset = new(-forward.X * camDistance, -forward.Y * camDistance, -forward.Z * camDistance);
-                Vector cameraPos = new(c4Position.X + offset.X, c4Position.Y + offset.Y, c4Position.Z + offset.Z);
+                Vector offset = new(
+                    -forward.X * camDistance,
+                    -forward.Y * camDistance,
+                    -forward.Z * camDistance
+                );
+                Vector cameraPos = new(
+                    c4Position.X + offset.X,
+                    c4Position.Y + offset.Y,
+                    c4Position.Z + offset.Z
+                );
 
-                OriginX = $"{cameraPos.X}";
-                OriginY = $"{cameraPos.Y}";
-                OriginZ = $"{(cameraPos.Z < lowestZ ? lowestZ : cameraPos.Z)}"; // Prevent the camera from going under the floor
 
-                LookAtX = $"{c4Position.X}";
-                LookAtY = $"{c4Position.Y}";
-                LookAtZ = $"{c4Position.Z}";
+                OriginX = cameraPos.X;
+                OriginY = cameraPos.Y;
+                // Prevent the camera from going under the floor
+                OriginZ = cameraPos.Z < lowestZ ? lowestZ : cameraPos.Z;
+
+                LookAtX = c4Position.X;
+                LookAtY = c4Position.Y;
+                LookAtZ = c4Position.Z;
 
                 gotOriginAndAngles = true;
             }
@@ -261,67 +232,53 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 return;
             }
 
-            OriginX = origin.X.ToString();
-            OriginY = origin.Y.ToString();
-            OriginZ = origin.Z.ToString();
+            OriginX = origin.X;
+            OriginY = origin.Y;
+            OriginZ = origin.Z;
 
             var LookAt = CalculateForward(origin, angles)!;
-            LookAtX = LookAt.X.ToString();
-            LookAtY = LookAt.Y.ToString();
-            LookAtZ = LookAt.Z.ToString();
+            LookAtX = LookAt.X;
+            LookAtY = LookAt.Y;
+            LookAtZ = LookAt.Z;
         }
-
-
-
-
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = (int)player.TeamNum;
 
-        var values =
-        new MySqlQueryValue()
-            .Add("SteamId", player!.SteamID.ToString())
-            .Add("Name", player.PlayerName)
-            .Add("OriginX", OriginX)
-            .Add("OriginY", OriginY)
-            .Add("OriginZ", OriginZ)
-            .Add("LookAtX", LookAtX)
-            .Add("LookAtY", LookAtY)
-            .Add("LookAtZ", LookAtZ)
-            .Add("IsAlive", playerIsAlive.ToString())
-            .Add("Team", Team.ToString());
-
-        try
+        if (!PlayerData.ContainsKey(player.SteamID))
         {
-            db!.Table("ProximityData").InsertIfNotExist(values, $@"
-                `SteamId` = '{SteamId}',
-                `Name` = '{Name}',
-                `OriginX` = '{OriginX}',
-                `OriginY` = '{OriginY}',
-                `OriginZ` = '{OriginZ}',
-                `LookAtX` = '{LookAtX}',
-                `LookAtY` = '{LookAtY}',
-                `LookAtZ` = '{LookAtZ}',
-                `IsAlive` = '{playerIsAlive}',
-                `Team` = '{Team}',
-                `LastUpdated` = CURRENT_TIMESTAMP()
-            ");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error inserting player position: {ex.Message}");
+            PlayerData[player.SteamID] = new PlayerData(player.SteamID.ToString());
         }
 
+        PlayerData[player.SteamID].Name = player.PlayerName;
+        PlayerData[player.SteamID].SteamId = player.SteamID.ToString();
+
+        // Scale up the floats and store them as integers
+        PlayerData[player.SteamID].OriginX = (int)(OriginX * 10000);
+        PlayerData[player.SteamID].OriginY = (int)(OriginY * 10000);
+        PlayerData[player.SteamID].OriginZ = (int)(OriginZ * 10000);
+        PlayerData[player.SteamID].LookAtX = (int)(LookAtX * 10000);
+        PlayerData[player.SteamID].LookAtY = (int)(LookAtY * 10000);
+        PlayerData[player.SteamID].LookAtZ = (int)(LookAtZ * 10000);
+
+        PlayerData[player.SteamID].Team = Team;
+        PlayerData[player.SteamID].IsAlive = playerIsAlive == 1 ? true : false;
     }
 
     public bool IsValid(CCSPlayerController? playerController)
     {
-        if (playerController == null) return false;
-        if (playerController.IsValid == false) return false;
-        if (playerController.IsHLTV) return false;
-        if (playerController.Connected != PlayerConnectedState.PlayerConnected) return false;
-        if (playerController.PlayerPawn?.Value == null) return false;
-        if (playerController.PlayerPawn.IsValid == false) return false;
+        if (playerController == null)
+            return false;
+        if (playerController.IsValid == false)
+            return false;
+        if (playerController.IsHLTV)
+            return false;
+        if (playerController.Connected != PlayerConnectedState.PlayerConnected)
+            return false;
+        if (playerController.PlayerPawn?.Value == null)
+            return false;
+        if (playerController.PlayerPawn.IsValid == false)
+            return false;
 
         return true;
     }
@@ -338,29 +295,54 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         return false;
     }
 
-
     public Vector? CalculateForward(Vector origin, QAngle angle)
     {
         Vector _forward = new();
         NativeAPI.AngleVectors(angle.Handle, _forward.Handle, 0, 0);
-        Vector _endOrigin = new(origin.X + _forward.X * 8192, origin.Y + _forward.Y * 8192, origin.Z + _forward.Z * 8192);
+        Vector _endOrigin = new(
+            origin.X + _forward.X * 8192,
+            origin.Y + _forward.Y * 8192,
+            origin.Z + _forward.Z * 8192
+        );
         return _endOrigin;
     }
 
-    public Vector? GetEyePosition<T>(T? playerPawn) where T : CBasePlayerPawn
+    public Vector? GetEyePosition<T>(T? playerPawn)
+        where T : CBasePlayerPawn
     {
-        if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null || playerPawn.AbsOrigin == null)
+        if (
+            playerPawn == null
+            || !playerPawn.IsValid
+            || playerPawn.CameraServices == null
+            || playerPawn.AbsOrigin == null
+        )
             return null;
 
         var absOrigin = playerPawn.AbsOrigin.Clone();
         var cameraServices = playerPawn.CameraServices;
-        return new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
+        return new Vector(
+            absOrigin.X,
+            absOrigin.Y,
+            absOrigin.Z + cameraServices.OldPlayerViewOffsetZ
+        );
     }
-
 
     public override void Unload(bool hotReload)
     {
+        if (_cts != null)
+        {
+            _cts.Cancel();
+            _socketTask?.Wait();
+            _cts.Dispose();
+            _cts = null;
+            _socketTask = null;
+        }
 
+        if (socket != null && socket.Connected)
+        {
+            socket.Dispose();
+            socket = null;
+        }
     }
 
     public void OnConfigParsed(Config config)
