@@ -46,8 +46,12 @@ jobs:
           cp ${{ env.OUTPUT_PATH }}/ProximityChat.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/ProximityChat.pdb ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/ProximityChat.deps.json ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/MySqlConnector.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/Nexd.MySQL.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/MessagePack.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/MessagePack.Annotations.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIOClient.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIO.Core.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.Core.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.SystemTextJson.dll ${{ env.RELEASE_PATH }}
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5
