@@ -4,7 +4,7 @@
 
 ## Description
 
-This plugin saves the positions and camera angles of players into your database and is used by the API Server together with the Electron App Client to calculate positional audio and sound occlusion.
+This plugin sends player positions and camera angles to the API server, which then broadcasts the data to connected users in the Electron app, where positional audio and sound occlusion are calculated.
 
 ## Links
 
@@ -19,12 +19,6 @@ CS2 Plugin (https://github.com/b0ink/CS2-VoiceProximity-Plugin)
 Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/ProximityChat/ProximityChat.json`.\
 <sub>(Note: config will be auto-generated after the plugin is loaded for the first time)</sub>
 
-`DatabaseHost`: The host address of your MySql database.
+`SocketUrl`: The address of the socket url. Defaults to the `https://cs2voiceproximity.chat`.
 
-`DatabasePort `: Database port.
-
-`DatabaseUser`: Database user.
-
-`DatabasePassword`: Database password.
-
-`DatabaseName`: Database name.
+`ApiKey`: The API key used to authenticate the connection from your CS2 server to the API.
