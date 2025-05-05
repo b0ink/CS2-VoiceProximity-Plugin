@@ -9,6 +9,8 @@ using CounterStrikeSharp.API.Modules.Utils;
 using SocketIOClient;
 using MessagePack;
 using CounterStrikeSharp.API.Modules.Timers;
+using CounterStrikeSharp.API.Modules.Cvars;
+using System.Net;
 
 namespace ProximityChat;
 
@@ -25,8 +27,17 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     private CancellationTokenSource? _cts;
     private Task? _socketTask;
     public SocketIOClient.SocketIO? socket = null;
+
+    string? hostAddress = null;
+    string? hostPort = null;
     public override void Load(bool hotReload)
     {
+
+        if (Config.ApiKey == null)
+        {
+            throw new Exception($"Invalid or no ApiKey set in Proximity Chat Config.");
+        }
+
         if (_cts != null)
         {
             _cts.Cancel();
@@ -35,26 +46,46 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         _cts = new CancellationTokenSource();
         _socketTask = Task.Run(() => InitSocketIO(_cts.Token));
 
-
-        //RegisterListener<Listeners.OnMapStart>(mapName =>
-        //{
-        //    AddTimer(0.1f, () =>
-        //    {
-        //        SaveAllPlayersPositions();
-        //    }, TimerFlags.STOP_ON_MAPCHANGE | TimerFlags.REPEAT);
-        //});
-
-
         RegisterListener<Listeners.OnTick>(() =>
         {
             SaveAllPlayersPositions();
         });
 
+        var ipInt = ConVar.Find("hostip")?.GetPrimitiveValue<int>();
+        if (ipInt != null)
+        {
+            byte[] bytes = BitConverter.GetBytes((int)ipInt);
+            Array.Reverse(bytes);
+            string ipString = new IPAddress(bytes).ToString();
+            hostAddress = ipString != null ? ipString : null;
+        }
+
+        var port = ConVar.Find("hostport")?.GetPrimitiveValue<int>();
+        hostPort = port != null ? port.ToString() : null;
     }
 
     private async Task InitSocketIO(CancellationToken token)
     {
-        socket = new SocketIOClient.SocketIO(Config.SocketURL);
+        var query = new List<KeyValuePair<string, string>>();
+        if (Config.ApiKey != null)
+        {
+            query.Add(new KeyValuePair<string, string>("api-key", Config.ApiKey));
+        }
+        if (hostAddress != null)
+        {
+            query.Add(new KeyValuePair<string, string>("server-address", hostAddress));
+        }
+        if (hostPort != null)
+        {
+            query.Add(new KeyValuePair<string, string>("server-port", hostPort));
+        }
+
+        socket = new SocketIOClient.SocketIO(Config.SocketURL, new SocketIOOptions
+        {
+            ReconnectionAttempts = 3,
+            Reconnection = true,
+            Query = query
+        });
         socket.OnConnected += async (sender, e) =>
         {
             _ = Task.Run(async () =>
@@ -75,7 +106,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     [RequiresPermissions("#css/admin")]
     public void Command_savepositions(CCSPlayerController? caller, CommandInfo info)
     {
-        // Debug
         SaveAllPlayersPositions();
     }
 
@@ -150,6 +180,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                     useObserverPawn = true;
                 }
             }
+            SavePlayerData(player, useObserverPawn);
         }
     }
 
