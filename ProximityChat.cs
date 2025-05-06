@@ -32,6 +32,18 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     string? hostPort = null;
     public override void Load(bool hotReload)
     {
+       
+        var ipInt = ConVar.Find("hostip")?.GetPrimitiveValue<int>();
+        if (ipInt != null)
+        {
+            byte[] bytes = BitConverter.GetBytes((int)ipInt);
+            Array.Reverse(bytes);
+            string ipString = new IPAddress(bytes).ToString();
+            hostAddress = ipString != null ? ipString : null;
+        }
+
+        var port = ConVar.Find("hostport")?.GetPrimitiveValue<int>();
+        hostPort = port != null ? port.ToString() : null;
 
         if (Config.ApiKey == null)
         {
@@ -50,19 +62,9 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             SaveAllPlayersPositions();
         });
-
-        var ipInt = ConVar.Find("hostip")?.GetPrimitiveValue<int>();
-        if (ipInt != null)
-        {
-            byte[] bytes = BitConverter.GetBytes((int)ipInt);
-            Array.Reverse(bytes);
-            string ipString = new IPAddress(bytes).ToString();
-            hostAddress = ipString != null ? ipString : null;
-        }
-
-        var port = ConVar.Find("hostport")?.GetPrimitiveValue<int>();
-        hostPort = port != null ? port.ToString() : null;
+        
     }
+
 
     private async Task InitSocketIO(CancellationToken token)
     {
