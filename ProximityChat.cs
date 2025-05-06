@@ -32,6 +32,11 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     string? hostPort = null;
     public override void Load(bool hotReload)
     {
+        if (Config.ApiKey == null)
+        {
+            throw new Exception($"Invalid or no ApiKey set in Proximity Chat Config.");
+        }
+
         RegisterListener<Listeners.OnGameServerSteamAPIActivated>(() =>
         {
             InitServer();
@@ -40,11 +45,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (hotReload)
         {
             InitServer();
-        }
-
-        if (Config.ApiKey == null)
-        {
-            throw new Exception($"Invalid or no ApiKey set in Proximity Chat Config.");
         }
 
         RegisterListener<Listeners.OnTick>(() =>
