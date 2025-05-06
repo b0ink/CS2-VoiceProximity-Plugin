@@ -62,7 +62,15 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             SaveAllPlayersPositions();
         });
-        
+
+        RegisterListener<Listeners.OnClientDisconnect>((playerSlot) =>
+        {
+            var player = Utilities.GetPlayerFromSlot(playerSlot);
+            if (player != null && player.IsValid)
+            {
+                PlayerData.Remove(player.SteamID);
+            }
+        });
     }
 
 
