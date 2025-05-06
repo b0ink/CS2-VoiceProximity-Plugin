@@ -32,31 +32,20 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     string? hostPort = null;
     public override void Load(bool hotReload)
     {
-       
-        var ipInt = ConVar.Find("hostip")?.GetPrimitiveValue<int>();
-        if (ipInt != null)
+        RegisterListener<Listeners.OnGameServerSteamAPIActivated>(() =>
         {
-            byte[] bytes = BitConverter.GetBytes((int)ipInt);
-            Array.Reverse(bytes);
-            string ipString = new IPAddress(bytes).ToString();
-            hostAddress = ipString != null ? ipString : null;
-        }
+            InitServer();
+        });
 
-        var port = ConVar.Find("hostport")?.GetPrimitiveValue<int>();
-        hostPort = port != null ? port.ToString() : null;
+        if (hotReload)
+        {
+            InitServer();
+        }
 
         if (Config.ApiKey == null)
         {
             throw new Exception($"Invalid or no ApiKey set in Proximity Chat Config.");
         }
-
-        if (_cts != null)
-        {
-            _cts.Cancel();
-            //_socketTask?.Wait(); // optionally await
-        }
-        _cts = new CancellationTokenSource();
-        _socketTask = Task.Run(() => InitSocketIO(_cts.Token));
 
         RegisterListener<Listeners.OnTick>(() =>
         {
@@ -70,6 +59,33 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             {
                 PlayerData.Remove(player.SteamID);
             }
+        });
+    }
+
+
+    public void InitServer()
+    {
+        var ipInt = ConVar.Find("hostip")?.GetPrimitiveValue<int>();
+        if (ipInt != null)
+        {
+            byte[] bytes = BitConverter.GetBytes((int)ipInt);
+            Array.Reverse(bytes);
+            string ipString = new IPAddress(bytes).ToString();
+            hostAddress = ipString != null ? ipString : null;
+        }
+
+        var port = ConVar.Find("hostport")?.GetPrimitiveValue<int>();
+        hostPort = port != null ? port.ToString() : null;
+
+        Server.NextFrame(() =>
+        {
+            if (_cts != null)
+            {
+                _cts.Cancel();
+                //_socketTask?.Wait(); // optionally await
+            }
+            _cts = new CancellationTokenSource();
+            _socketTask = Task.Run(() => InitSocketIO(_cts.Token));
         });
     }
 
