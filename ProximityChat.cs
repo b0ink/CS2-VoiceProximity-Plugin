@@ -30,6 +30,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     string? hostAddress = null;
     string? hostPort = null;
+
+    string CurrentMap = "";
     public override void Load(bool hotReload)
     {
         if (Config.ApiKey == null)
@@ -39,11 +41,13 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         RegisterListener<Listeners.OnGameServerSteamAPIActivated>(() =>
         {
+            CurrentMap = Server.MapName;
             InitServer();
         });
 
         if (hotReload)
         {
+            CurrentMap = Server.MapName;
             InitServer();
         }
 
@@ -59,6 +63,12 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             {
                 PlayerData.Remove(player.SteamID);
             }
+        });
+
+        RegisterListener<Listeners.OnMapStart>(mapName =>
+        {
+            CurrentMap = mapName;
+            NotifyMapChange();
         });
     }
 
@@ -119,12 +129,36 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 while (!token.IsCancellationRequested)
                 {
                     var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
-                    await socket.EmitAsync("server-data", "proximity-chat", payload);
+                    await socket.EmitAsync("player-positions", "proximity-chat", payload);
                     await Task.Delay(100, token);
                 }
             }, token);
+
+            NotifyMapChange();
         };
         await socket.ConnectAsync();
+    }
+
+    [ConsoleCommand("css_updatemap")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_UpdateMap(CCSPlayerController? caller, CommandInfo info)
+    {
+        CurrentMap = Server.MapName;
+        NotifyMapChange();
+        info.ReplyToCommand($"Attempting to notify server of current map: {Server.MapName}");
+    }
+
+    private void NotifyMapChange()
+    {
+        if(socket == null || !socket.Connected)
+        {
+            return;
+        }
+        Console.WriteLine($"Notifying server of current map: {CurrentMap}");
+        Task.Run(async () =>
+        {
+            await socket.EmitAsync("current-map", "proximity-chat", CurrentMap);
+        });
     }
 
 
