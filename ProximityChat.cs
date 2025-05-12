@@ -228,7 +228,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         foreach (var player in Utilities.GetPlayers().Where(IsValid))
         {
-            //if (player.SteamID == 0) continue; // ignore bots
+            //if (player.IsBot) continue; // ignore bots
 
             bool useObserverPawn = false;
             if (player.PlayerPawn.Value!.LifeState != (byte)LifeState_t.LIFE_ALIVE)
@@ -247,10 +247,17 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)
     {
-        if (!IsValid(player))
+        if (player == null || !IsValid(player))
         {
             return;
         }
+
+        if (player.AuthorizedSteamID?.SteamId64 == null)
+        {
+            return;
+        }
+
+        var playerSteamId = (ulong)player.AuthorizedSteamID.SteamId64;
 
         float OriginX = 0f;
         float OriginY = 0f;
@@ -336,24 +343,24 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = (int)player.TeamNum;
 
-        if (!PlayerData.ContainsKey(player.SteamID))
+        if (!PlayerData.ContainsKey(playerSteamId))
         {
-            PlayerData[player.SteamID] = new PlayerData(player.SteamID.ToString());
+            PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString());
         }
 
-        PlayerData[player.SteamID].Name = player.PlayerName;
-        PlayerData[player.SteamID].SteamId = player.SteamID.ToString();
+        PlayerData[playerSteamId].Name = player.PlayerName;
+        PlayerData[playerSteamId].SteamId = playerSteamId.ToString();
 
         // Scale up the floats and store them as integers
-        PlayerData[player.SteamID].OriginX = (int)(OriginX * 10000);
-        PlayerData[player.SteamID].OriginY = (int)(OriginY * 10000);
-        PlayerData[player.SteamID].OriginZ = (int)(OriginZ * 10000);
-        PlayerData[player.SteamID].LookAtX = (int)(LookAtX * 10000);
-        PlayerData[player.SteamID].LookAtY = (int)(LookAtY * 10000);
-        PlayerData[player.SteamID].LookAtZ = (int)(LookAtZ * 10000);
+        PlayerData[playerSteamId].OriginX = (int)(OriginX * 10000);
+        PlayerData[playerSteamId].OriginY = (int)(OriginY * 10000);
+        PlayerData[playerSteamId].OriginZ = (int)(OriginZ * 10000);
+        PlayerData[playerSteamId].LookAtX = (int)(LookAtX * 10000);
+        PlayerData[playerSteamId].LookAtY = (int)(LookAtY * 10000);
+        PlayerData[playerSteamId].LookAtZ = (int)(LookAtZ * 10000);
 
-        PlayerData[player.SteamID].Team = Team;
-        PlayerData[player.SteamID].IsAlive = playerIsAlive == 1 ? true : false;
+        PlayerData[playerSteamId].Team = Team;
+        PlayerData[playerSteamId].IsAlive = playerIsAlive == 1 ? true : false;
     }
 
     public bool IsValid(CCSPlayerController? playerController)
