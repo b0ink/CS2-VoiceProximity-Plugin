@@ -266,6 +266,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         float LookAtY = 0f;
         float LookAtZ = 0f;
 
+        bool spectatingC4 = false;
+
         CBasePlayerPawn? pawn = player!.PlayerPawn.Value;
         bool gotOriginAndAngles = false;
         if (useObserverPawn)
@@ -313,6 +315,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 LookAtZ = c4Position.Z;
 
                 gotOriginAndAngles = true;
+                spectatingC4 = true;
             }
         }
 
@@ -361,6 +364,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         PlayerData[playerSteamId].Team = Team;
         PlayerData[playerSteamId].IsAlive = playerIsAlive == 1 ? true : false;
+        PlayerData[playerSteamId].SpectatingC4 = spectatingC4;
     }
 
     public bool IsValid(CCSPlayerController? playerController)
