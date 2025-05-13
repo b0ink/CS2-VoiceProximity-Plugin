@@ -19,7 +19,7 @@ public class PlayerData
     [Key(5)] public int LookAtX { get; set; }
     [Key(6)] public int LookAtY { get; set; }
     [Key(7)] public int LookAtZ { get; set; }
-    [Key(8)] public int Team { get; set; }
+    [Key(8)] public byte Team { get; set; }
     [Key(9)] public bool IsAlive { get; set; }
     [Key(10)] public bool SpectatingC4 { get; set; }
 

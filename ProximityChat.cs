@@ -344,7 +344,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
-        var Team = (int)player.TeamNum;
+        var Team = player.TeamNum;
 
         if (!PlayerData.ContainsKey(playerSteamId))
         {
