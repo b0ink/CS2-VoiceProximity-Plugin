@@ -150,7 +150,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     private void NotifyMapChange()
     {
-        if(socket == null || !socket.Connected)
+        if (socket == null || !socket.Connected)
         {
             return;
         }
@@ -224,6 +224,24 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         return null;
     }
 
+    public ObserverMode_t? GetObserverMode(CCSPlayerController? observer)
+    {
+        if (observer == null || !IsValid(observer))
+        {
+            return ObserverMode_t.OBS_MODE_NONE;
+        }
+
+        var observerServices = observer.Pawn.Value?.ObserverServices;
+        if (observerServices != null)
+        {
+            var observerMode = observerServices.ObserverMode;
+            //bool inFreeMode = observerMode == (byte)ObserverMode_t.OBS_MODE_ROAMING;
+
+            return (ObserverMode_t)observerMode;
+        }
+        return ObserverMode_t.OBS_MODE_NONE;
+    }
+
     public void SaveAllPlayersPositions()
     {
         foreach (var player in Utilities.GetPlayers().Where(IsValid))
@@ -272,13 +290,13 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         bool gotOriginAndAngles = false;
         if (useObserverPawn)
         {
-            // This is only effective if cameras are forced for first person
-            // TODO: find another method to get positions of players in freecam
             var observingTarget = GetObserverTarget(player);
             if (observingTarget != null && IsValid(observingTarget))
             {
                 pawn = observingTarget.Pawn.Value;
             }
+
+            var observerMode = GetObserverMode(player);
 
             if (GetObserverEntity(player)?.DesignerName == "planted_c4")
             {
@@ -316,6 +334,54 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
                 gotOriginAndAngles = true;
                 spectatingC4 = true;
+            }
+            else if (observerMode == ObserverMode_t.OBS_MODE_ROAMING)
+            {
+                QAngle angles = player.Pawn.Value.V_angle.Clone();
+                Vector? origin = GetFreecamPlayerPosition(player);
+                if (origin != null)
+                {
+                    OriginX = origin.X;
+                    OriginY = origin.Y;
+                    OriginZ = origin.Z;
+
+                    var LookAt = CalculateForward(origin, angles)!;
+
+                    LookAtX = LookAt.X;
+                    LookAtY = LookAt.Y;
+                    LookAtZ = LookAt.Z;
+                    gotOriginAndAngles = true;
+                }
+            }
+            else if (observerMode == ObserverMode_t.OBS_MODE_CHASE && pawn.DesignerName == "player")
+            {
+                var vAngle = player.Pawn.Value!.V_angle.Clone();
+                var position = GetEyePosition(pawn);
+
+                // Calculate third person position when spectating a player in thirdperson view (Chase cam)
+                Vector forward = new();
+                NativeAPI.AngleVectors(vAngle.Handle, forward.Handle, 0, 0);
+
+                const float camDistance = 150; // matches cam_idealdist cvar
+
+                Vector offset = new(
+                    -forward.X * camDistance,
+                    -forward.Y * camDistance,
+                    -forward.Z * camDistance
+                );
+                Vector cameraPos = new(
+                    position.X + offset.X,
+                    position.Y + offset.Y,
+                    position.Z + offset.Z
+                );
+
+                OriginX = cameraPos.X;
+                OriginY = cameraPos.Y;
+                OriginZ = cameraPos.Z;
+                LookAtX = position.X;
+                LookAtY = position.Y;
+                LookAtZ = position.Z;
+                gotOriginAndAngles = true;
             }
         }
 
@@ -427,6 +493,15 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             absOrigin.Y,
             absOrigin.Z + cameraServices.OldPlayerViewOffsetZ
         );
+    }
+
+    public Vector? GetFreecamPlayerPosition(CCSPlayerController? player)
+    {
+        if (player == null || !IsValid(player))
+        {
+            return null;
+        }
+        return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone() ?? null;
     }
 
     public override void Unload(bool hotReload)
