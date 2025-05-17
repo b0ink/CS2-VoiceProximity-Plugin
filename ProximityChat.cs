@@ -125,7 +125,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 Query = query,
             }
         );
-        socket.OnConnected += async (sender, e) =>
+        socket.OnConnected += (sender, e) =>
         {
             _ = Task.Run(
                 async () =>
