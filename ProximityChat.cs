@@ -316,18 +316,22 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         bool gotOriginAndAngles = false;
         if (useObserverPawn)
         {
+            var observerMode = GetObserverMode(player);
             var observingTarget = GetObserverTarget(player);
             if (observingTarget != null && IsValid(observingTarget))
             {
                 pawn = observingTarget.Pawn.Value;
             }
 
-            var observerMode = GetObserverMode(player);
-
             if (GetObserverEntity(player)?.DesignerName == "planted_c4")
             {
                 var vAngle = player.Pawn.Value!.V_angle.Clone();
                 var c4Position = player.Pawn.Value!.AbsOrigin?.Clone();
+
+                if (c4Position == null)
+                {
+                    return;
+                }
 
                 // Calculate third person position when spectating planted c4
                 Vector forward = new();
@@ -362,7 +366,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
             else if (observerMode == ObserverMode_t.OBS_MODE_ROAMING)
             {
-                QAngle angles = player.Pawn.Value.V_angle.Clone();
+                QAngle angles = player.Pawn.Value!.V_angle.Clone();
                 Vector? origin = GetFreecamPlayerPosition(player);
                 if (origin != null)
                 {
@@ -378,10 +382,17 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                     gotOriginAndAngles = true;
                 }
             }
-            else if (observerMode == ObserverMode_t.OBS_MODE_CHASE && pawn.DesignerName == "player")
+            else if (
+                observerMode == ObserverMode_t.OBS_MODE_CHASE
+                && pawn!.DesignerName == "player"
+            )
             {
                 var vAngle = player.Pawn.Value!.V_angle.Clone();
                 var position = GetEyePosition(pawn);
+                if (position == null)
+                {
+                    return;
+                }
 
                 // Calculate third person position when spectating a player in thirdperson view (Chase cam)
                 Vector forward = new();
