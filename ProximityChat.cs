@@ -4,7 +4,6 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
 using SocketIOClient;
 using MessagePack;
@@ -69,6 +68,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             CurrentMap = mapName;
             NotifyMapChange();
+            NotifyServerConfig();
         });
     }
 
@@ -129,12 +129,14 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 while (!token.IsCancellationRequested)
                 {
                     var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
-                    await socket.EmitAsync("player-positions", "proximity-chat", payload);
+
+                    _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
                     await Task.Delay(100, token);
                 }
             }, token);
 
             NotifyMapChange();
+            NotifyServerConfig();
         };
         await socket.ConnectAsync();
     }
@@ -146,6 +148,13 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         CurrentMap = Server.MapName;
         NotifyMapChange();
         info.ReplyToCommand($"Attempting to notify server of current map: {Server.MapName}");
+    }
+
+    [ConsoleCommand("css_updateconfig")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_UpdateConfig(CCSPlayerController? caller, CommandInfo info)
+    {
+        NotifyServerConfig();
     }
 
     private void NotifyMapChange()
@@ -161,10 +170,23 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
+    private void NotifyServerConfig()
+    {
+        if (socket == null || !socket.Connected)
+        {
+            return;
+        }
+        var payload = MessagePackSerializer.Serialize(Config);
+        Task.Run(async () =>
+        {
+            await socket.EmitAsync("server-config", "proximity-chat", payload);
+        });
+    }
+
 
     [ConsoleCommand("css_savepositions")]
     [RequiresPermissions("#css/admin")]
-    public void Command_savepositions(CCSPlayerController? caller, CommandInfo info)
+    public void Command_SavePositions(CCSPlayerController? caller, CommandInfo info)
     {
         SaveAllPlayersPositions();
     }
@@ -261,7 +283,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             SavePlayerData(player, useObserverPawn);
         }
     }
-
 
     public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)
     {
@@ -412,12 +433,17 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = player.TeamNum;
 
+        SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+    }
+
+    public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
+    {
         if (!PlayerData.ContainsKey(playerSteamId))
         {
             PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString());
         }
 
-        PlayerData[playerSteamId].Name = player.PlayerName;
+        PlayerData[playerSteamId].Name = playerName;
         PlayerData[playerSteamId].SteamId = playerSteamId.ToString();
 
         // Scale up the floats and store them as integers
