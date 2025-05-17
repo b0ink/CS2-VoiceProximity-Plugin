@@ -38,8 +38,9 @@ public class PlayerData
     [Key(10)]
     public bool SpectatingC4 { get; set; }
 
-    public PlayerData(string steamId)
+    public PlayerData(string steamId, string name)
     {
         this.SteamId = steamId;
+        this.Name = name;
     }
 }

@@ -479,7 +479,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         if (!PlayerData.ContainsKey(playerSteamId))
         {
-            PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString());
+            PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString(), playerName);
         }
 
         PlayerData[playerSteamId].Name = playerName;
