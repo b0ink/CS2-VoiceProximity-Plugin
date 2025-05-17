@@ -1,15 +1,14 @@
-﻿using System.Reflection;
+﻿using System.Net;
+using System.Reflection;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Utils;
-using SocketIOClient;
-using MessagePack;
-using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Cvars;
-using System.Net;
+using CounterStrikeSharp.API.Modules.Utils;
+using MessagePack;
+using SocketIOClient;
 
 namespace ProximityChat;
 
@@ -31,6 +30,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     string? hostPort = null;
 
     string CurrentMap = "";
+
     public override void Load(bool hotReload)
     {
         if (Config.ApiKey == null)
@@ -55,14 +55,16 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             SaveAllPlayersPositions();
         });
 
-        RegisterListener<Listeners.OnClientDisconnect>((playerSlot) =>
-        {
-            var player = Utilities.GetPlayerFromSlot(playerSlot);
-            if (player != null && player.IsValid)
+        RegisterListener<Listeners.OnClientDisconnect>(
+            (playerSlot) =>
             {
-                PlayerData.Remove(player.SteamID);
+                var player = Utilities.GetPlayerFromSlot(playerSlot);
+                if (player != null && player.IsValid)
+                {
+                    PlayerData.Remove(player.SteamID);
+                }
             }
-        });
+        );
 
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
@@ -71,7 +73,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             NotifyServerConfig();
         });
     }
-
 
     public void InitServer()
     {
@@ -99,7 +100,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
-
     private async Task InitSocketIO(CancellationToken token)
     {
         var query = new List<KeyValuePair<string, string>>();
@@ -116,24 +116,30 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             query.Add(new KeyValuePair<string, string>("server-port", hostPort));
         }
 
-        socket = new SocketIOClient.SocketIO(Config.SocketURL, new SocketIOOptions
-        {
-            ReconnectionAttempts = 3,
-            Reconnection = true,
-            Query = query
-        });
+        socket = new SocketIOClient.SocketIO(
+            Config.SocketURL,
+            new SocketIOOptions
+            {
+                ReconnectionAttempts = 3,
+                Reconnection = true,
+                Query = query,
+            }
+        );
         socket.OnConnected += async (sender, e) =>
         {
-            _ = Task.Run(async () =>
-            {
-                while (!token.IsCancellationRequested)
+            _ = Task.Run(
+                async () =>
                 {
-                    var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
+                    while (!token.IsCancellationRequested)
+                    {
+                        var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
 
-                    _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
-                    await Task.Delay(100, token);
-                }
-            }, token);
+                        _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
+                        await Task.Delay(100, token);
+                    }
+                },
+                token
+            );
 
             NotifyMapChange();
             NotifyServerConfig();
@@ -182,7 +188,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             await socket.EmitAsync("server-config", "proximity-chat", payload);
         });
     }
-
 
     [ConsoleCommand("css_savepositions")]
     [RequiresPermissions("#css/admin")]
@@ -343,7 +348,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                     c4Position.Z + offset.Z
                 );
 
-
                 OriginX = cameraPos.X;
                 OriginY = cameraPos.Y;
                 // Prevent the camera from going under the floor
@@ -433,10 +437,34 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = player.TeamNum;
 
-        SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+        SaveData(
+            playerSteamId,
+            player.PlayerName,
+            OriginX,
+            OriginY,
+            OriginZ,
+            LookAtX,
+            LookAtY,
+            LookAtZ,
+            Team,
+            playerIsAlive,
+            spectatingC4
+        );
     }
 
-    public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
+    public void SaveData(
+        ulong playerSteamId,
+        string playerName,
+        float OriginX,
+        float OriginY,
+        float OriginZ,
+        float LookAtX,
+        float LookAtY,
+        float LookAtZ,
+        byte Team,
+        int playerIsAlive,
+        bool spectatingC4
+    )
     {
         if (!PlayerData.ContainsKey(playerSteamId))
         {
@@ -527,7 +555,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             return null;
         }
-        return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone() ?? null;
+        return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone()
+            ?? null;
     }
 
     public override void Unload(bool hotReload)
