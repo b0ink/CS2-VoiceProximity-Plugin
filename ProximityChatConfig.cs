@@ -23,4 +23,13 @@ public class Config : BasePluginConfig
     // Can dead players speak when spectating C4
     [Key(2)]
     public bool AllowSpectatorC4Voice { get; set; } = true;
+
+    // How quickly player voice volumes are reduced as you move away from them
+    [Key(3)]
+    public float RolloffFactor { get; set; } = 1;
+
+    // The reference distance for reducing player voice volume as you move away from them
+    // i.e., the distance at which the volume reduction starts taking effect
+    [Key(4)]
+    public float RefDistance { get; set; } = 39;
 }

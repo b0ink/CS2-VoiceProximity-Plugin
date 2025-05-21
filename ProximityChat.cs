@@ -31,6 +31,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     string CurrentMap = "";
 
+    public bool DEBUG_FAKE_PLAYERS = false;
+
     public override void Load(bool hotReload)
     {
         if (Config.ApiKey == null)
@@ -147,22 +149,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         await socket.ConnectAsync();
     }
 
-    [ConsoleCommand("css_updatemap")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_UpdateMap(CCSPlayerController? caller, CommandInfo info)
-    {
-        CurrentMap = Server.MapName;
-        NotifyMapChange();
-        info.ReplyToCommand($"Attempting to notify server of current map: {Server.MapName}");
-    }
-
-    [ConsoleCommand("css_updateconfig")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_UpdateConfig(CCSPlayerController? caller, CommandInfo info)
-    {
-        NotifyServerConfig();
-    }
-
     private void NotifyMapChange()
     {
         if (socket == null || !socket.Connected)
@@ -189,11 +175,86 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
+    [ConsoleCommand("css_fakeplayers")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_fakeplayers(CCSPlayerController? caller, CommandInfo info)
+    {
+        DEBUG_FAKE_PLAYERS = !DEBUG_FAKE_PLAYERS;
+        info.ReplyToCommand($"fake players?: {DEBUG_FAKE_PLAYERS}");
+    }
+
+    [ConsoleCommand("css_updatemap")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_UpdateMap(CCSPlayerController? caller, CommandInfo info)
+    {
+        CurrentMap = Server.MapName;
+        NotifyMapChange();
+        info.ReplyToCommand($"Attempting to notify server of current map: {Server.MapName}");
+    }
+
+    [ConsoleCommand("css_updateconfig")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_UpdateConfig(CCSPlayerController? caller, CommandInfo info)
+    {
+        NotifyServerConfig();
+    }
+
     [ConsoleCommand("css_savepositions")]
     [RequiresPermissions("#css/admin")]
     public void Command_SavePositions(CCSPlayerController? caller, CommandInfo info)
     {
         SaveAllPlayersPositions();
+    }
+
+    [ConsoleCommand("css_setrollofffactor")]
+    [CommandHelper(1, "<factor>")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_SetRolloffFactor(CCSPlayerController? caller, CommandInfo info)
+    {
+        var sRolloffFactor = info.GetArg(1);
+        float rolloffFactor;
+        if (!float.TryParse(sRolloffFactor, out rolloffFactor))
+        {
+            info.ReplyToCommand($"Invalid input: {sRolloffFactor}");
+            return;
+        }
+        Config.RolloffFactor = rolloffFactor;
+        info.ReplyToCommand($"Saved RolloffFactor to {rolloffFactor}");
+        NotifyServerConfig();
+    }
+
+    [ConsoleCommand("css_setrefdistance")]
+    [CommandHelper(1, "<factor>")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_SetRefDistance(CCSPlayerController? caller, CommandInfo info)
+    {
+        var sRefDistance = info.GetArg(1);
+        float refDistance;
+        if (!float.TryParse(sRefDistance, out refDistance))
+        {
+            info.ReplyToCommand($"Invalid input: {sRefDistance}");
+            return;
+        }
+        Config.RefDistance = refDistance;
+        info.ReplyToCommand($"Saved RefDistance to {refDistance}");
+        NotifyServerConfig();
+    }
+
+    [ConsoleCommand("css_setdeadplayermutedelay")]
+    [CommandHelper(1, "<delay>")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_SetDeadPlayerMuteDelay(CCSPlayerController? caller, CommandInfo info)
+    {
+        var sMuteDelay = info.GetArg(1);
+        float muteDelay;
+        if (!float.TryParse(sMuteDelay, out muteDelay))
+        {
+            info.ReplyToCommand($"Invalid input: {sMuteDelay}");
+            return;
+        }
+        Config.DeadPlayerMuteDelay = muteDelay;
+        info.ReplyToCommand($"Saved MuteDelay to {muteDelay}");
+        NotifyServerConfig();
     }
 
     public CBaseEntity? GetObserverEntity(CCSPlayerController? observer)
@@ -262,8 +323,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (observerServices != null)
         {
             var observerMode = observerServices.ObserverMode;
-            //bool inFreeMode = observerMode == (byte)ObserverMode_t.OBS_MODE_ROAMING;
-
             return (ObserverMode_t)observerMode;
         }
         return ObserverMode_t.OBS_MODE_NONE;
@@ -341,16 +400,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 const float camDistance = 100;
                 float lowestZ = c4Position.Z + 25;
 
-                Vector offset = new(
-                    -forward.X * camDistance,
-                    -forward.Y * camDistance,
-                    -forward.Z * camDistance
-                );
-                Vector cameraPos = new(
-                    c4Position.X + offset.X,
-                    c4Position.Y + offset.Y,
-                    c4Position.Z + offset.Z
-                );
+                Vector offset = new(-forward.X * camDistance, -forward.Y * camDistance, -forward.Z * camDistance);
+                Vector cameraPos = new(c4Position.X + offset.X, c4Position.Y + offset.Y, c4Position.Z + offset.Z);
 
                 OriginX = cameraPos.X;
                 OriginY = cameraPos.Y;
@@ -382,10 +433,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                     gotOriginAndAngles = true;
                 }
             }
-            else if (
-                observerMode == ObserverMode_t.OBS_MODE_CHASE
-                && pawn!.DesignerName == "player"
-            )
+            else if (observerMode == ObserverMode_t.OBS_MODE_CHASE && pawn!.DesignerName == "player")
             {
                 var vAngle = player.Pawn.Value!.V_angle.Clone();
                 var position = GetEyePosition(pawn);
@@ -400,16 +448,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
                 const float camDistance = 150; // matches cam_idealdist cvar
 
-                Vector offset = new(
-                    -forward.X * camDistance,
-                    -forward.Y * camDistance,
-                    -forward.Z * camDistance
-                );
-                Vector cameraPos = new(
-                    position.X + offset.X,
-                    position.Y + offset.Y,
-                    position.Z + offset.Z
-                );
+                Vector offset = new(-forward.X * camDistance, -forward.Y * camDistance, -forward.Z * camDistance);
+                Vector cameraPos = new(position.X + offset.X, position.Y + offset.Y, position.Z + offset.Z);
 
                 OriginX = cameraPos.X;
                 OriginY = cameraPos.Y;
@@ -447,35 +487,24 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = player.TeamNum;
-
-        SaveData(
-            playerSteamId,
-            player.PlayerName,
-            OriginX,
-            OriginY,
-            OriginZ,
-            LookAtX,
-            LookAtY,
-            LookAtZ,
-            Team,
-            playerIsAlive,
-            spectatingC4
-        );
+        // csharpier-ignore-start
+        SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+        if (DEBUG_FAKE_PLAYERS)
+        {
+            SaveData(10000000000000001, "bob", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
+            SaveData(10000000000000002, "john", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
+            SaveData(10000000000000003, "april", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
+            SaveData(10000000000000004, "carl", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
+            SaveData(10000000000000005, "ethan", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+            SaveData(10000000000000006, "franny", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+            SaveData(10000000000000007, "gunter", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+            SaveData(10000000000000008, "ian", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+            SaveData(10000000000000009, "BOINK", 1283, -309, -100, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+        }
+        // csharpier-ignore-end
     }
 
-    public void SaveData(
-        ulong playerSteamId,
-        string playerName,
-        float OriginX,
-        float OriginY,
-        float OriginZ,
-        float LookAtX,
-        float LookAtY,
-        float LookAtZ,
-        byte Team,
-        int playerIsAlive,
-        bool spectatingC4
-    )
+    public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
     {
         if (!PlayerData.ContainsKey(playerSteamId))
         {
@@ -532,32 +561,19 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         Vector _forward = new();
         NativeAPI.AngleVectors(angle.Handle, _forward.Handle, 0, 0);
-        Vector _endOrigin = new(
-            origin.X + _forward.X * 8192,
-            origin.Y + _forward.Y * 8192,
-            origin.Z + _forward.Z * 8192
-        );
+        Vector _endOrigin = new(origin.X + _forward.X * 8192, origin.Y + _forward.Y * 8192, origin.Z + _forward.Z * 8192);
         return _endOrigin;
     }
 
     public Vector? GetEyePosition<T>(T? playerPawn)
         where T : CBasePlayerPawn
     {
-        if (
-            playerPawn == null
-            || !playerPawn.IsValid
-            || playerPawn.CameraServices == null
-            || playerPawn.AbsOrigin == null
-        )
+        if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null || playerPawn.AbsOrigin == null)
             return null;
 
         var absOrigin = playerPawn.AbsOrigin.Clone();
         var cameraServices = playerPawn.CameraServices;
-        return new Vector(
-            absOrigin.X,
-            absOrigin.Y,
-            absOrigin.Z + cameraServices.OldPlayerViewOffsetZ
-        );
+        return new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
     }
 
     public Vector? GetFreecamPlayerPosition(CCSPlayerController? player)
@@ -566,8 +582,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             return null;
         }
-        return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone()
-            ?? null;
+        return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone() ?? null;
     }
 
     public override void Unload(bool hotReload)
