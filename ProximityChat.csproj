@@ -1,14 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <Version>0.0.15</Version>
-  </PropertyGroup>
-  
+    <PropertyGroup>
+        <Version>0.0.15</Version>
+    </PropertyGroup>
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
-
     <ItemGroup>
         <PackageReference Include="CounterStrikeSharp.API" Version="1.0.316" />
         <PackageReference Include="MessagePack" Version="3.1.3" />
