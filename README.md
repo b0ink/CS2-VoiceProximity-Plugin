@@ -28,3 +28,7 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
 `AllowDeadTeamVoice`: Allows dead teammates to communicate with each other while spectating. (Default: `true`)
 
 `AllowSpectatorC4Voice`: Determines if dead players spectating the C4 can be heard by any alive players. (Default: `true`)
+
+`RolloffFactor`: How quickly player voice volumes are reduced as you move away from them. (Default: `1`)
+
+`RefDistance`: The distance at which the volume reduction starts taking effect. (Default: `39`)
