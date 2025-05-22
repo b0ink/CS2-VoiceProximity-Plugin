@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections.Generic;
+using System.Net;
 using System.Reflection;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
@@ -6,6 +7,7 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Cvars;
+using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using SocketIOClient;
@@ -55,18 +57,31 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         RegisterListener<Listeners.OnTick>(() =>
         {
             SaveAllPlayersPositions();
-        });
 
-        RegisterListener<Listeners.OnClientDisconnect>(
-            (playerSlot) =>
+            for (int i = 0; i < Server.MaxPlayers; i++)
             {
-                var player = Utilities.GetPlayerFromSlot(playerSlot);
-                if (player != null && player.IsValid)
+                var player = Utilities.GetPlayerFromSlot(i);
+
+                if (player == null || !player.IsValid)
                 {
-                    PlayerData.Remove(player.SteamID);
+                    continue;
+                }
+
+                // Prevent players from being removed during map changes
+                if (player.Connected == PlayerConnectedState.PlayerDisconnected)
+                {
+                    var authorisedSteamID = player.AuthorizedSteamID?.SteamId64;
+                    if (authorisedSteamID != null && PlayerData.ContainsKey((ulong)authorisedSteamID))
+                    {
+                        PlayerData.Remove((ulong)authorisedSteamID);
+                    }
+                    else if (PlayerData.ContainsKey(player.SteamID))
+                    {
+                        PlayerData.Remove(player.SteamID);
+                    }
                 }
             }
-        );
+        });
 
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
