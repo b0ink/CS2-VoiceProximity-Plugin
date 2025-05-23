@@ -10,6 +10,7 @@ using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
+using Microsoft.Extensions.Logging;
 using SocketIOClient;
 
 namespace ProximityChat;
@@ -39,6 +40,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         if (Config.ApiKey == null)
         {
+            Logger.LogError($"Invalid no Api Key set in Proximity Chat Config.");
             throw new Exception($"Invalid or no ApiKey set in Proximity Chat Config.");
         }
 
@@ -161,6 +163,21 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             NotifyMapChange();
             NotifyServerConfig();
         };
+
+        socket.OnDisconnected += (sender, e) =>
+        {
+            Logger.LogError($"Socket disconnected. Please ensure your Api Key is set correctly and you are using the correct SocketURL (Region).");
+        };
+
+        // Custom errors from the API
+        socket.On(
+            "exception",
+            (SocketIOResponse error) =>
+            {
+                Logger.LogError(error.GetValue<string>(0).ToString());
+            }
+        );
+
         await socket.ConnectAsync();
     }
 
