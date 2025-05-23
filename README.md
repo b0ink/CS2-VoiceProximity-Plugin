@@ -8,27 +8,45 @@ This plugin sends player positions and camera angles to the API server, which th
 
 ## Links
 
-Voice Chat Client (https://github.com/b0ink/CS2-VoiceProximity-Client)
+[Voice Chat Client](https://github.com/b0ink/CS2-VoiceProximity-Client)
 
-API Server (https://github.com/b0ink/CS2-VoiceProximity-Server)
+[API Server](https://github.com/b0ink/CS2-VoiceProximity-Server)
 
-CS2 Plugin (https://github.com/b0ink/CS2-VoiceProximity-Plugin)
+[CS2 Plugin](https://github.com/b0ink/CS2-VoiceProximity-Plugin)
 
-## Database Config
+## Plugin Config
 
 Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/ProximityChat/ProximityChat.json`.\
 <sub>(Note: config will be auto-generated after the plugin is loaded for the first time)</sub>
 
-`SocketUrl`: The address of the socket url. Defaults to the `https://cs2voiceproximity.chat`.
+```jsonc
+{
+  // The address of the socket to relay player positions to.
+  // Clients must be using the same URL (Region) defined here.
+  "SocketURL": "https://au.cs2voiceproximity.chat",
 
-`ApiKey`: The API key used to authenticate the connection from your CS2 server to the API.
+  // The API key used to authenticate the connection from your CS2 server to the API.
+  // Note: API keys are region-specific and only work with their corresponding socket URL.
+  "ApiKey": "YOUR_API_KEY_HERE",
 
-`DeadPlayerMuteDelay`: Number of seconds to wait before muting a player after they die. (Default: `1`)
+  // Number of milliseconds to wait before muting a player after they die.
+  "DeadPlayerMuteDelay": 1000,
 
-`AllowDeadTeamVoice`: Allows dead teammates to communicate with each other while spectating. (Default: `true`)
+  // Allows dead teammates to communicate with each other while spectating.
+  "AllowDeadTeamVoice": true,
 
-`AllowSpectatorC4Voice`: Determines if dead players spectating the C4 can be heard by any alive players. (Default: `true`)
+  // Determines if dead players spectating the C4 can be heard by any alive players.
+  "AllowSpectatorC4Voice": true,
 
-`RolloffFactor`: How quickly player voice volumes are reduced as you move away from them. (Default: `1`)
+  // How quickly player voice volumes are reduced as you move away from them.
+  "RolloffFactor": 1,
 
-`RefDistance`: The distance at which the volume reduction starts taking effect. (Default: `39`)
+  // The distance at which the volume reduction starts taking effect.
+  "RefDistance": 39
+}
+```
+
+## Official socket urls
+
+- Oceania: `https://au.cs2voiceproximity.chat`
+- Europe: `https://eu.cs2voiceproximity.chat`
