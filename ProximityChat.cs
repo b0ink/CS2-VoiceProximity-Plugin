@@ -8,6 +8,7 @@ using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Entities;
+using CounterStrikeSharp.API.Modules.Extensions;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using Microsoft.Extensions.Logging;
@@ -200,6 +201,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             return;
         }
+        Config.Reload();
         var payload = MessagePackSerializer.Serialize(Config);
         Task.Run(async () =>
         {
