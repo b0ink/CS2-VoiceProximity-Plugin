@@ -24,34 +24,34 @@ public class Config : BasePluginConfig
     [Key(2)]
     public bool AllowSpectatorC4Voice { get; set; } = true;
 
-    // How quickly player voice volumes are reduced as you move away from them
-    [Key(3)]
-    public float RolloffFactor { get; set; } = 1;
-
-    // The reference distance for reducing player voice volume as you move away from them
-    // i.e., the distance at which the volume reduction starts taking effect
-    [Key(4)]
-    public float RefDistance { get; set; } = 39;
-
     // Maximum occlusion when player is closest to sound source.
     // The lower the number, the more muffled the player will be.
-    [Key(5)]
+    [Key(3)]
     public float OcclusionNear { get; set; } = 350;
 
     // The maximum occlusion when player's distance reaches OcclusionEnd
     // The higher the number, the more clearer the player will sound at further distances.
     // Player becomes inaudible at around 25 and below
-    [Key(6)]
+    [Key(4)]
     public float OcclusionFar { get; set; } = 25;
 
     // Distance from player where it fully reaches OcclusionFar
-    [Key(7)]
+    [Key(5)]
     public float OcclusionEndDist { get; set; } = 2000;
 
     // Controls how quickly occlusion drops off with distance (higher = steeper drop near end, lower = more gradual fade)
     // https://www.desmos.com/calculator
     // Plug in `y=x^{exponent}` and zoom inbetween 0-1 on the X axis. The curve represents the sound occlusion falloff.
     // Set this value to 1 for a linear dropoff
-    [Key(8)]
+    [Key(6)]
     public float OcclusionFalloffExponent { get; set; } = 3;
+
+    // How quickly player voice volumes are reduced as you move away from them
+    [Key(7)]
+    public float RolloffFactor { get; set; } = 1;
+
+    // The reference distance for reducing player voice volume as you move away from them
+    // i.e., the distance at which the volume reduction starts taking effect
+    [Key(8)]
+    public float RefDistance { get; set; } = 39;
 }
