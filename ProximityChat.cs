@@ -8,7 +8,9 @@ using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Entities;
+using CounterStrikeSharp.API.Modules.Events;
 using CounterStrikeSharp.API.Modules.Extensions;
+using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using Microsoft.Extensions.Logging;
@@ -251,6 +253,124 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
+    public PropertyInfo? configPropertyEditing = null;
+    public ulong configEditedBySteamId = 0;
+
+    [ConsoleCommand("css_proximity", "Opens a menu to update the Proximity Chat config")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_ProximityChatMenu(CCSPlayerController? caller, CommandInfo info)
+    {
+        if (caller == null || !IsValid(caller))
+        {
+            return;
+        }
+
+        var menu = new ChatMenu("Proximity Chat Config");
+        foreach (var prop in typeof(Config).GetProperties())
+        {
+            var name = prop.Name;
+            var propType = prop.PropertyType;
+
+            if (prop.GetCustomAttributes(typeof(IgnoreMemberAttribute), true).Length > 0 || name == "Version" || name == "ConfigVersion")
+                continue;
+
+            string displayOption = "";
+            if (prop.PropertyType == typeof(bool))
+            {
+                var value = (bool)(prop.GetValue(Config) ?? false);
+                displayOption = $"{name}: {(value ? ChatColors.Green : ChatColors.Red)}{value}";
+            }
+            else
+            {
+                displayOption = $"{name}: {ChatColors.Magenta}{prop.GetValue(Config)}";
+            }
+
+            menu.AddMenuOption(
+                displayOption,
+                (player, selection) =>
+                {
+                    var subMenu = new ChatMenu($"Change {name}");
+
+                    if (prop.PropertyType == typeof(bool))
+                    {
+                        subMenu.AddMenuOption(
+                            "True",
+                            (player, selection) =>
+                            {
+                                prop.SetValue(Config, true);
+                                Config.Update();
+                                NotifyServerConfig();
+                                caller.PrintToChat($"Set {name} to {ChatColors.Green}true");
+                            }
+                        );
+                        subMenu.AddMenuOption(
+                            "false",
+                            (player, selection) =>
+                            {
+                                prop.SetValue(Config, false);
+                                Config.Update();
+                                NotifyServerConfig();
+                                caller.PrintToChat($"Set {name} to {ChatColors.Red}false");
+                            }
+                        );
+                        MenuManager.OpenChatMenu(caller, subMenu);
+                    }
+                    else if (prop.PropertyType == typeof(float))
+                    {
+                        var value = prop.GetValue(Config);
+                        configPropertyEditing = prop;
+                        configEditedBySteamId = caller.AuthorizedSteamID?.SteamId64 ?? 0;
+                        caller.PrintToChat($"Type in chat the new value of {ChatColors.Green}{name}");
+                    }
+                }
+            );
+        }
+        MenuManager.OpenChatMenu(caller, menu);
+    }
+
+    [GameEventHandler]
+    public HookResult Event_PlayerChat(EventPlayerChat @event, GameEventInfo info)
+    {
+        var player = Utilities.GetPlayerFromUserid(@event.Userid);
+        if (player == null || !IsValid(player))
+        {
+            return HookResult.Continue;
+        }
+
+        if (configPropertyEditing == null)
+        {
+            return HookResult.Continue;
+        }
+
+        var steamId = player.AuthorizedSteamID?.SteamId64 ?? 0;
+        if (configEditedBySteamId != steamId || steamId == 0)
+        {
+            return HookResult.Continue;
+        }
+
+        float newValue;
+        if (!float.TryParse(@event.Text, out newValue))
+        {
+            player.PrintToChat($"Invalid value: {ChatColors.Red}{@event.Text}{ChatColors.Default}");
+            configPropertyEditing = null;
+            configEditedBySteamId = 0;
+            return HookResult.Continue;
+        }
+
+        var name = configPropertyEditing.Name;
+        configPropertyEditing.SetValue(Config, newValue);
+
+        Config.Update();
+        NotifyServerConfig();
+
+        player.PrintToChat($"Updated {ChatColors.Green}{name} {ChatColors.Default}to {ChatColors.Magenta}{newValue}");
+
+        configPropertyEditing = null;
+        configEditedBySteamId = 0;
+
+        return HookResult.Continue;
+    }
+
     [ConsoleCommand("css_fakeplayers")]
     [RequiresPermissions("#css/admin")]
     public void Command_fakeplayers(CCSPlayerController? caller, CommandInfo info)
@@ -280,57 +400,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     public void Command_SavePositions(CCSPlayerController? caller, CommandInfo info)
     {
         SaveAllPlayersPositions();
-    }
-
-    [ConsoleCommand("css_setrollofffactor")]
-    [CommandHelper(1, "<factor>")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_SetRolloffFactor(CCSPlayerController? caller, CommandInfo info)
-    {
-        var sRolloffFactor = info.GetArg(1);
-        float rolloffFactor;
-        if (!float.TryParse(sRolloffFactor, out rolloffFactor))
-        {
-            info.ReplyToCommand($"Invalid input: {sRolloffFactor}");
-            return;
-        }
-        Config.RolloffFactor = rolloffFactor;
-        info.ReplyToCommand($"Saved RolloffFactor to {rolloffFactor}");
-        NotifyServerConfig();
-    }
-
-    [ConsoleCommand("css_setrefdistance")]
-    [CommandHelper(1, "<factor>")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_SetRefDistance(CCSPlayerController? caller, CommandInfo info)
-    {
-        var sRefDistance = info.GetArg(1);
-        float refDistance;
-        if (!float.TryParse(sRefDistance, out refDistance))
-        {
-            info.ReplyToCommand($"Invalid input: {sRefDistance}");
-            return;
-        }
-        Config.RefDistance = refDistance;
-        info.ReplyToCommand($"Saved RefDistance to {refDistance}");
-        NotifyServerConfig();
-    }
-
-    [ConsoleCommand("css_setdeadplayermutedelay")]
-    [CommandHelper(1, "<delay>")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_SetDeadPlayerMuteDelay(CCSPlayerController? caller, CommandInfo info)
-    {
-        var sMuteDelay = info.GetArg(1);
-        float muteDelay;
-        if (!float.TryParse(sMuteDelay, out muteDelay))
-        {
-            info.ReplyToCommand($"Invalid input: {sMuteDelay}");
-            return;
-        }
-        Config.DeadPlayerMuteDelay = muteDelay;
-        info.ReplyToCommand($"Saved MuteDelay to {muteDelay}");
-        NotifyServerConfig();
     }
 
     public CBaseEntity? GetObserverEntity(CCSPlayerController? observer)
