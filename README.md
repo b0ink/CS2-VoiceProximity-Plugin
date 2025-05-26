@@ -42,7 +42,23 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   "RolloffFactor": 1,
 
   // The distance at which the volume reduction starts taking effect.
-  "RefDistance": 39
+  "RefDistance": 39,
+
+  // Maximum occlusion when player is closest to sound source.
+  "OcclusionNear": 350,
+
+  // Maximum occlusion when player's distance reaches OcclusionEndDist
+  // Player becomes inaudible at around 25 and below
+  "OcclusionFar": 25,
+
+  // Distance from player where it fully reaches OcclusionFar
+  "OcclusionEndDist": 2000,
+
+  // Controls how quickly occlusion drops off with distance
+  // higher = steeper drop near end
+  // lower = more gradual fade with a steep dropoff at the end
+  // Set this to 1 for a linear fade
+  "OcclusionFalloffExponent": 3
 }
 ```
 
