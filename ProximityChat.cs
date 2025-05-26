@@ -18,6 +18,12 @@ using SocketIOClient;
 
 namespace ProximityChat;
 
+class ExceptionPayload
+{
+    public int code { get; set; }
+    public string message { get; set; }
+}
+
 public class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
     public override string ModuleName => "Proximity Chat API";
@@ -38,6 +44,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     string CurrentMap = "";
 
     public bool DEBUG_FAKE_PLAYERS = false;
+
+    public bool tryReconnectSocket = true;
 
     public override void Load(bool hotReload)
     {
@@ -190,7 +198,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         socket.OnDisconnected += (sender, e) =>
         {
-            Logger.LogError($"Socket disconnected. Please ensure your Api Key is set correctly and you are using the correct SocketURL (Region).");
+            Logger.LogError($"Socket disconnected. You can try reconnecting by changing the map, or restarting the server.");
             if (_cts != null)
             {
                 _cts.Cancel();
@@ -201,13 +209,16 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
             Server.NextFrame(() =>
             {
-                AddTimer(
-                    1,
-                    () =>
-                    {
-                        InitServer();
-                    }
-                );
+                if (tryReconnectSocket)
+                {
+                    AddTimer(
+                        1,
+                        () =>
+                        {
+                            InitServer();
+                        }
+                    );
+                }
             });
         };
 
@@ -216,7 +227,10 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             "exception",
             (SocketIOResponse error) =>
             {
-                Logger.LogError(error.GetValue<string>(0).ToString());
+                var payload = error.GetValue<ExceptionPayload>(0);
+                string message = payload?.message ?? "Unknown socket exception occurred.";
+                Logger.LogError(message);
+                tryReconnectSocket = false;
             }
         );
 
