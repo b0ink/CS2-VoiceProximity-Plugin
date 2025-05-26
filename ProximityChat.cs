@@ -54,7 +54,13 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (hotReload)
         {
             CurrentMap = Server.MapName;
-            InitServer();
+            AddTimer(
+                1,
+                () =>
+                {
+                    InitServer();
+                }
+            );
         }
 
         RegisterListener<Listeners.OnTick>(() =>
@@ -89,8 +95,15 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
             CurrentMap = mapName;
-            NotifyMapChange();
-            NotifyServerConfig();
+            if (_cts == null && _socketTask == null)
+            {
+                InitServer();
+            }
+            else
+            {
+                NotifyMapChange();
+                NotifyServerConfig();
+            }
         });
     }
 
@@ -114,6 +127,10 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             {
                 _cts.Cancel();
                 //_socketTask?.Wait(); // optionally await
+                _socketTask?.Wait();
+                _cts.Dispose();
+                _cts = null;
+                _socketTask = null;
             }
             _cts = new CancellationTokenSource();
             _socketTask = Task.Run(() => InitSocketIO(_cts.Token));
@@ -144,8 +161,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             Config.SocketURL,
             new SocketIOOptions
             {
-                ReconnectionAttempts = 3,
-                Reconnection = true,
+                //ReconnectionAttempts = 3,
+                Reconnection = false,
                 Query = query,
             }
         );
@@ -172,6 +189,24 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         socket.OnDisconnected += (sender, e) =>
         {
             Logger.LogError($"Socket disconnected. Please ensure your Api Key is set correctly and you are using the correct SocketURL (Region).");
+            if (_cts != null)
+            {
+                _cts.Cancel();
+                _socketTask?.Wait();
+                _cts.Dispose();
+                _cts = null;
+                _socketTask = null;
+            }
+            Server.NextFrame(() =>
+            {
+                AddTimer(
+                    1,
+                    () =>
+                    {
+                        InitServer();
+                    }
+                );
+            });
         };
 
         // Custom errors from the API
