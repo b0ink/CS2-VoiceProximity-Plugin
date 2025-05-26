@@ -135,6 +135,10 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             query.Add(new KeyValuePair<string, string>("server-port", hostPort));
         }
+        if (PluginVersion != null)
+        {
+            query.Add(new KeyValuePair<string, string>("plugin-version", PluginVersion));
+        }
 
         socket = new SocketIOClient.SocketIO(
             Config.SocketURL,
