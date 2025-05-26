@@ -56,7 +56,7 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
 
   // Controls how quickly occlusion drops off with distance
   // higher = steeper drop near end
-  // lower = more gradual fade with a steep dropoff at the end
+  // lower = steep drop off at the start, then more gradual fade towards the end
   // Set this to 1 for a linear fade
   "OcclusionFalloffExponent": 3
 }
