@@ -205,11 +205,14 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             return;
         }
-        Config.Reload();
-        var payload = MessagePackSerializer.Serialize(Config);
-        Task.Run(async () =>
+        Server.NextFrame(() =>
         {
-            await socket.EmitAsync("server-config", "proximity-chat", payload);
+            Config.Reload();
+            var payload = MessagePackSerializer.Serialize(Config);
+            Task.Run(async () =>
+            {
+                await socket.EmitAsync("server-config", "proximity-chat", payload);
+            });
         });
     }
 
