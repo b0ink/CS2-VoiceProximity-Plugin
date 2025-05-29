@@ -38,14 +38,8 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   // Determines if dead players spectating the C4 can be heard by any alive players.
   "AllowSpectatorC4Voice": true,
 
-  // How quickly player voice volumes are reduced as you move away from them.
-  "RolloffFactor": 1,
-
-  // The distance at which the volume reduction starts taking effect.
-  "RefDistance": 39,
-
   // Maximum occlusion when player is closest to sound source.
-  "OcclusionNear": 350,
+  "OcclusionNear": 300,
 
   // Maximum occlusion when player's distance reaches OcclusionEndDist
   // Player becomes inaudible at around 25 and below
@@ -58,7 +52,16 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   // higher = steeper drop near end
   // lower = steep drop off at the start, then more gradual fade towards the end
   // Set this to 1 for a linear fade
-  "OcclusionFalloffExponent": 3
+  "OcclusionFalloffExponent": 3,
+
+  // How quickly player voice volumes are reduced as you move away from them
+  "VolumeFalloffFactor": 0.5,
+
+  // The max distance the player can be heard
+  "VolumeMaxDistance": 2000,
+
+  //  Players are audible if they are within view, regardless of max distance settings
+  "AlwaysHearVisiblePlayers": true
 }
 ```
 
