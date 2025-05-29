@@ -57,4 +57,8 @@ public class Config : BasePluginConfig
     // The max distance the player can be heard
     [Key(8)]
     public float VolumeMaxDistance { get; set; } = 2500;
+
+    // Players are audible if they are within view, regardless of max distance settings
+    [Key(9)]
+    public bool AlwaysHearVisiblePlayers { get; set; } = true;
 }

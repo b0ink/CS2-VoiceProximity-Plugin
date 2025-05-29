@@ -259,6 +259,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                         Config.OcclusionFar = updatedConfig.OcclusionFar;
                         Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
                         Config.OcclusionFalloffExponent = updatedConfig.OcclusionFalloffExponent;
+                        Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
                         Server.NextFrame(() =>
                         {
                             Config.Update();
