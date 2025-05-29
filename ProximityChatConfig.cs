@@ -31,7 +31,7 @@ public class Config : BasePluginConfig
     // Maximum occlusion when player is closest to sound source.
     // The lower the number, the more muffled the player will be.
     [Key(3)]
-    public float OcclusionNear { get; set; } = 350;
+    public float OcclusionNear { get; set; } = 300;
 
     // The maximum occlusion when player's distance reaches OcclusionEnd
     // The higher the number, the more clearer the player will sound at further distances.
@@ -52,11 +52,11 @@ public class Config : BasePluginConfig
 
     // How quickly player voice volumes are reduced as you move away from them
     [Key(7)]
-    public float VolumeFalloffFactor { get; set; } = 3;
+    public float VolumeFalloffFactor { get; set; } = 0.5f;
 
     // The max distance the player can be heard
     [Key(8)]
-    public float VolumeMaxDistance { get; set; } = 2500;
+    public float VolumeMaxDistance { get; set; } = 2000;
 
     // Players are audible if they are within view, regardless of max distance settings
     [Key(9)]
