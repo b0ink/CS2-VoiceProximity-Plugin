@@ -48,10 +48,9 @@ public class Config : BasePluginConfig
 
     // How quickly player voice volumes are reduced as you move away from them
     [Key(7)]
-    public float RolloffFactor { get; set; } = 1;
+    public float VolumeFalloffFactor { get; set; } = 3;
 
-    // The reference distance for reducing player voice volume as you move away from them
-    // i.e., the distance at which the volume reduction starts taking effect
+    // The max distance the player can be heard
     [Key(8)]
-    public float RefDistance { get; set; } = 39;
+    public float VolumeMaxDistance { get; set; } = 2500;
 }
