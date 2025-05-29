@@ -12,6 +12,10 @@ public class Config : BasePluginConfig
     [IgnoreMember]
     public string? ApiKey { get; set; }
 
+    [IgnoreMember]
+    // Comma delimited list of admin groups and flags that have access to updating the config from the voice chat app
+    public string ServerConfigAdmins { get; set; } = "#css/admin,@css/proximity-config";
+
     // Seconds before players are muted after dying
     [Key(0)]
     public float DeadPlayerMuteDelay { get; set; } = 1f;

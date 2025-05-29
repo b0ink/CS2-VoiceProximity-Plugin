@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Reflection;
 using CounterStrikeSharp.API;
@@ -104,6 +105,13 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
         });
 
+        RegisterListener<Listeners.OnClientConnected>(
+            (slot) =>
+            {
+                Console.WriteLine("joining");
+            }
+        );
+
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
             CurrentMap = mapName;
@@ -117,6 +125,40 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 NotifyServerConfig();
             }
         });
+    }
+
+    public void CheckAdmin(CCSPlayerController? player)
+    {
+        if (player == null || !player.IsValid)
+        {
+            return;
+        }
+
+        var steamId = player.AuthorizedSteamID;
+        if (steamId?.SteamId64 == null)
+        {
+            return;
+        }
+
+        var steamId64 = steamId.SteamId64;
+        if (!PlayerData.ContainsKey((ulong)steamId64))
+        {
+            PlayerData[steamId64] = new PlayerData(steamId64.ToString(), player.PlayerName);
+        }
+
+        PlayerData[steamId64].IsAdmin = false;
+
+        var adminFlags = Config.ServerConfigAdmins.Split(",").ToList();
+        if (adminFlags != null)
+        {
+            foreach (var flag in adminFlags)
+            {
+                if (AdminManager.PlayerHasPermissions(player, flag) || AdminManager.PlayerInGroup(player, flag))
+                {
+                    PlayerData[steamId64].IsAdmin = true;
+                }
+            }
+        }
     }
 
     public void InitServer()
@@ -197,6 +239,39 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             NotifyMapChange();
             NotifyServerConfig();
         };
+
+        socket.On(
+            "server-config",
+            (data) =>
+            {
+                try
+                {
+                    var bytes = data.GetValue<byte[]>();
+                    if (bytes != null)
+                    {
+                        var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
+                        Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
+                        Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
+                        Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
+                        Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
+                        Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
+                        Config.OcclusionNear = updatedConfig.OcclusionNear;
+                        Config.OcclusionFar = updatedConfig.OcclusionFar;
+                        Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
+                        Config.OcclusionFalloffExponent = updatedConfig.OcclusionFalloffExponent;
+                        Server.NextFrame(() =>
+                        {
+                            Config.Update();
+                        });
+                        Console.WriteLine($"Config has been updated by client");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex.Message);
+                }
+            }
+        );
 
         socket.OnDisconnected += (sender, e) =>
         {
@@ -647,6 +722,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = player.TeamNum;
+        CheckAdmin(player);
         // csharpier-ignore-start
         SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
         if (DEBUG_FAKE_PLAYERS)
