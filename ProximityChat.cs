@@ -47,6 +47,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public bool tryReconnectSocket = true;
 
+    public Vector debugPlayerPosition = new Vector();
+
     public override void Load(bool hotReload)
     {
         if (Config.ApiKey == null)
@@ -657,9 +659,22 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             SaveData(10000000000000006, "franny", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
             SaveData(10000000000000007, "gunter", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
             SaveData(10000000000000008, "ian", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
-            SaveData(10000000000000009, "BOINK", 1283, -309, -100, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+            SaveData(10000000000000009, "BOINK", debugPlayerPosition.X, debugPlayerPosition.Y, debugPlayerPosition.Z, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
         }
         // csharpier-ignore-end
+    }
+
+    [ConsoleCommand("css_setdebugpos")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_setdebugpos(CCSPlayerController? caller, CommandInfo info)
+    {
+        var origin = GetEyePosition(caller?.Pawn.Value);
+        if (origin != null)
+        {
+            debugPlayerPosition.X = origin.X;
+            debugPlayerPosition.Y = origin.Y;
+            debugPlayerPosition.Z = origin.Z;
+        }
     }
 
     public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
