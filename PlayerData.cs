@@ -12,7 +12,7 @@ public class PlayerData
     public string Name { get; set; }
 
     [Key(2)]
-    public bool IsAdmin { get; set; }
+    public bool? IsAdmin { get; set; }
 
     [Key(3)]
     public int OriginX { get; set; }

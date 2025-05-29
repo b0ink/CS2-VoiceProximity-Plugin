@@ -105,10 +105,10 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
         });
 
-        RegisterListener<Listeners.OnClientConnected>(
-            (slot) =>
+        RegisterListener<Listeners.OnClientAuthorized>(
+            (slot, steamId) =>
             {
-                Console.WriteLine("joining");
+                CheckAdmin(steamId);
             }
         );
 
@@ -127,14 +127,8 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
-    public void CheckAdmin(CCSPlayerController? player)
+    public void CheckAdmin(SteamID? steamId)
     {
-        if (player == null || !player.IsValid)
-        {
-            return;
-        }
-
-        var steamId = player.AuthorizedSteamID;
         if (steamId?.SteamId64 == null)
         {
             return;
@@ -143,7 +137,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         var steamId64 = steamId.SteamId64;
         if (!PlayerData.ContainsKey((ulong)steamId64))
         {
-            PlayerData[steamId64] = new PlayerData(steamId64.ToString(), player.PlayerName);
+            PlayerData[steamId64] = new PlayerData(steamId64.ToString(), $"{steamId64}");
         }
 
         PlayerData[steamId64].IsAdmin = false;
@@ -153,7 +147,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             foreach (var flag in adminFlags)
             {
-                if (AdminManager.PlayerHasPermissions(player, flag) || AdminManager.PlayerInGroup(player, flag))
+                if (AdminManager.PlayerHasPermissions(steamId, flag) || AdminManager.PlayerInGroup(steamId, flag))
                 {
                     PlayerData[steamId64].IsAdmin = true;
                 }
@@ -723,7 +717,15 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = player.TeamNum;
-        CheckAdmin(player);
+
+        if (!PlayerData.ContainsKey(playerSteamId))
+        {
+            PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString(), player.PlayerName);
+        }
+        if (PlayerData[playerSteamId].IsAdmin == null)
+        {
+            CheckAdmin(player.AuthorizedSteamID);
+        }
         // csharpier-ignore-start
         SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
         if (DEBUG_FAKE_PLAYERS)
