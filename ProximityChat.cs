@@ -39,10 +39,10 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     private Task? _socketTask;
     public SocketIOClient.SocketIO? socket = null;
 
-    string? hostAddress = null;
-    string? hostPort = null;
+    public string? hostAddress = null;
+    public string? hostPort = null;
 
-    string CurrentMap = "";
+    public string CurrentMap = "";
 
     public bool DEBUG_FAKE_PLAYERS = false;
 
@@ -58,23 +58,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             throw new Exception($"Invalid or no ApiKey set in Proximity Chat Config.");
         }
 
-        RegisterListener<Listeners.OnGameServerSteamAPIActivated>(() =>
-        {
-            CurrentMap = Server.MapName;
-            InitServer();
-        });
-
-        if (hotReload)
-        {
-            CurrentMap = Server.MapName;
-            AddTimer(
-                1,
-                () =>
-                {
-                    InitServer();
-                }
-            );
-        }
+        CurrentMap = Server.MapName;
 
         RegisterListener<Listeners.OnTick>(() =>
         {
@@ -115,8 +99,9 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
             CurrentMap = mapName;
-            if (_cts == null && _socketTask == null)
+            if (_cts == null && _socketTask == null && (socket == null || !socket.Connected))
             {
+                Logger.LogInformation("OnMapStart: Init server");
                 InitServer();
             }
             else
@@ -205,107 +190,119 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             query.Add(new KeyValuePair<string, string>("plugin-version", PluginVersion));
         }
 
-        socket = new SocketIOClient.SocketIO(
-            Config.SocketURL,
-            new SocketIOOptions
-            {
-                //ReconnectionAttempts = 3,
-                Reconnection = false,
-                Query = query,
-            }
-        );
-        socket.OnConnected += (sender, e) =>
+        if (socket == null || !socket.Connected)
         {
-            _ = Task.Run(
-                async () =>
+            socket = new SocketIOClient.SocketIO(
+                Config.SocketURL,
+                new SocketIOOptions
                 {
-                    while (!token.IsCancellationRequested)
-                    {
-                        var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
-
-                        _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
-                        await Task.Delay(100, token);
-                    }
-                },
-                token
+                    //ReconnectionAttempts = 3,
+                    Reconnection = false,
+                    Query = query,
+                }
             );
-
-            NotifyMapChange();
-            NotifyServerConfig();
-        };
-
-        socket.On(
-            "server-config",
-            (data) =>
+            socket.OnConnected += (sender, e) =>
             {
-                try
-                {
-                    var bytes = data.GetValue<byte[]>();
-                    if (bytes != null)
+                _ = Task.Run(
+                    async () =>
                     {
-                        var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
-                        Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
-                        Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
-                        Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
-                        Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
-                        Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
-                        Config.OcclusionNear = updatedConfig.OcclusionNear;
-                        Config.OcclusionFar = updatedConfig.OcclusionFar;
-                        Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
-                        Config.OcclusionFalloffExponent = updatedConfig.OcclusionFalloffExponent;
-                        Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
-                        Server.NextFrame(() =>
+                        while (!token.IsCancellationRequested)
                         {
-                            Config.Update();
-                        });
-                        Console.WriteLine($"Config has been updated by client");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex.Message);
-                }
-            }
-        );
+                            var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
 
-        socket.OnDisconnected += (sender, e) =>
-        {
-            Logger.LogError($"Socket disconnected. You can try reconnecting by changing the map, or restarting the server.");
-            if (_cts != null)
-            {
-                _cts.Cancel();
-                _socketTask?.Wait();
-                _cts.Dispose();
-                _cts = null;
-                _socketTask = null;
-            }
-            Server.NextFrame(() =>
-            {
-                if (tryReconnectSocket)
+                            _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
+                            await Task.Delay(100, token);
+                        }
+                    },
+                    token
+                );
+
+                Server.NextFrame(() =>
                 {
                     AddTimer(
-                        1,
+                        5,
                         () =>
                         {
-                            InitServer();
+                            NotifyMapChange();
+                            NotifyServerConfig();
                         }
                     );
+                });
+            };
+
+            socket.On(
+                "server-config",
+                (data) =>
+                {
+                    try
+                    {
+                        var bytes = data.GetValue<byte[]>();
+                        if (bytes != null)
+                        {
+                            var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
+                            Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
+                            Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
+                            Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
+                            Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
+                            Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
+                            Config.OcclusionNear = updatedConfig.OcclusionNear;
+                            Config.OcclusionFar = updatedConfig.OcclusionFar;
+                            Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
+                            Config.OcclusionFalloffExponent = updatedConfig.OcclusionFalloffExponent;
+                            Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
+                            Server.NextFrame(() =>
+                            {
+                                Config.Update();
+                            });
+                            Console.WriteLine($"Config has been updated by client");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex.Message);
+                    }
                 }
-            });
-        };
+            );
 
-        // Custom errors from the API
-        socket.On(
-            "exception",
-            (SocketIOResponse error) =>
+            socket.OnDisconnected += (sender, e) =>
             {
-                var payload = error.GetValue<ExceptionPayload>(0);
-                Logger.LogError(payload?.Message ?? "Unknown socket exception occurred.");
-                tryReconnectSocket = false;
-            }
-        );
+                Logger.LogError($"Socket disconnected. You can try reconnecting by changing the map, or restarting the server.");
+                if (_cts != null)
+                {
+                    _cts.Cancel();
+                    _socketTask?.Wait();
+                    _cts.Dispose();
+                    _cts = null;
+                    _socketTask = null;
+                }
+                Server.NextFrame(() =>
+                {
+                    if (tryReconnectSocket)
+                    {
+                        AddTimer(
+                            1,
+                            () =>
+                            {
+                                InitServer();
+                            }
+                        );
+                    }
+                });
+            };
 
-        await socket.ConnectAsync();
+            // Custom errors from the API
+            socket.On(
+                "exception",
+                (SocketIOResponse error) =>
+                {
+                    var payload = error.GetValue<ExceptionPayload>(0);
+                    Logger.LogError(payload?.Message ?? "Unknown socket exception occurred.");
+                    tryReconnectSocket = false;
+                }
+            );
+
+            await socket.ConnectAsync();
+        }
     }
 
     private void NotifyMapChange()
