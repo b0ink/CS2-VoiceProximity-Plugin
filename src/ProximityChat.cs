@@ -1,17 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Net;
+﻿using System.Net;
 using System.Reflection;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Admin;
-using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Entities;
-using CounterStrikeSharp.API.Modules.Events;
 using CounterStrikeSharp.API.Modules.Extensions;
-using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using Microsoft.Extensions.Logging;
@@ -19,13 +13,13 @@ using SocketIOClient;
 
 namespace ProximityChat;
 
-class ExceptionPayload
+public class ExceptionPayload
 {
     public int Code { get; set; }
     public string? Message { get; set; }
 }
 
-public class ProximityChat : BasePlugin, IPluginConfig<Config>
+public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
     public override string ModuleName => "Proximity Chat API";
     public override string ModuleAuthor => "b0ink";
@@ -159,7 +153,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
             if (_cts != null)
             {
                 _cts.Cancel();
-                //_socketTask?.Wait(); // optionally await
                 _socketTask?.Wait();
                 _cts.Dispose();
                 _cts = null;
@@ -220,7 +213,7 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 Server.NextFrame(() =>
                 {
                     AddTimer(
-                        5,
+                        3,
                         () =>
                         {
                             NotifyMapChange();
@@ -333,226 +326,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
                 await socket.EmitAsync("server-config", "proximity-chat", payload);
             });
         });
-    }
-
-    public PropertyInfo? configPropertyEditing = null;
-    public ulong configEditedBySteamId = 0;
-
-    [ConsoleCommand("css_proximity", "Opens a menu to update the Proximity Chat config")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_ProximityChatMenu(CCSPlayerController? caller, CommandInfo info)
-    {
-        if (caller == null || !IsValid(caller))
-        {
-            return;
-        }
-
-        var menu = new ChatMenu("Proximity Chat Config");
-        foreach (var prop in typeof(Config).GetProperties())
-        {
-            var name = prop.Name;
-            var propType = prop.PropertyType;
-
-            if (prop.GetCustomAttributes(typeof(IgnoreMemberAttribute), true).Length > 0 || name == "Version" || name == "ConfigVersion")
-                continue;
-
-            string displayOption = "";
-            if (prop.PropertyType == typeof(bool))
-            {
-                var value = (bool)(prop.GetValue(Config) ?? false);
-                displayOption = $"{name}: {(value ? ChatColors.Green : ChatColors.Red)}{value}";
-            }
-            else
-            {
-                displayOption = $"{name}: {ChatColors.Magenta}{prop.GetValue(Config)}";
-            }
-
-            menu.AddMenuOption(
-                displayOption,
-                (player, selection) =>
-                {
-                    var subMenu = new ChatMenu($"Change {name}");
-
-                    if (prop.PropertyType == typeof(bool))
-                    {
-                        subMenu.AddMenuOption(
-                            "True",
-                            (player, selection) =>
-                            {
-                                prop.SetValue(Config, true);
-                                Config.Update();
-                                NotifyServerConfig();
-                                caller.PrintToChat($"Set {name} to {ChatColors.Green}true");
-                            }
-                        );
-                        subMenu.AddMenuOption(
-                            "false",
-                            (player, selection) =>
-                            {
-                                prop.SetValue(Config, false);
-                                Config.Update();
-                                NotifyServerConfig();
-                                caller.PrintToChat($"Set {name} to {ChatColors.Red}false");
-                            }
-                        );
-                        MenuManager.OpenChatMenu(caller, subMenu);
-                    }
-                    else if (prop.PropertyType == typeof(float))
-                    {
-                        var value = prop.GetValue(Config);
-                        configPropertyEditing = prop;
-                        configEditedBySteamId = caller.AuthorizedSteamID?.SteamId64 ?? 0;
-                        caller.PrintToChat($"Type in chat the new value of {ChatColors.Green}{name}");
-                    }
-                }
-            );
-        }
-        MenuManager.OpenChatMenu(caller, menu);
-    }
-
-    [GameEventHandler]
-    public HookResult Event_PlayerChat(EventPlayerChat @event, GameEventInfo info)
-    {
-        var player = Utilities.GetPlayerFromUserid(@event.Userid);
-        if (player == null || !IsValid(player))
-        {
-            return HookResult.Continue;
-        }
-
-        if (configPropertyEditing == null)
-        {
-            return HookResult.Continue;
-        }
-
-        var steamId = player.AuthorizedSteamID?.SteamId64 ?? 0;
-        if (configEditedBySteamId != steamId || steamId == 0)
-        {
-            return HookResult.Continue;
-        }
-
-        float newValue;
-        if (!float.TryParse(@event.Text, out newValue))
-        {
-            player.PrintToChat($"Invalid value: {ChatColors.Red}{@event.Text}{ChatColors.Default}");
-            configPropertyEditing = null;
-            configEditedBySteamId = 0;
-            return HookResult.Continue;
-        }
-
-        var name = configPropertyEditing.Name;
-        configPropertyEditing.SetValue(Config, newValue);
-
-        Config.Update();
-        NotifyServerConfig();
-
-        player.PrintToChat($"Updated {ChatColors.Green}{name} {ChatColors.Default}to {ChatColors.Magenta}{newValue}");
-
-        configPropertyEditing = null;
-        configEditedBySteamId = 0;
-
-        return HookResult.Continue;
-    }
-
-    [ConsoleCommand("css_fakeplayers")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_fakeplayers(CCSPlayerController? caller, CommandInfo info)
-    {
-        DEBUG_FAKE_PLAYERS = !DEBUG_FAKE_PLAYERS;
-        info.ReplyToCommand($"fake players?: {DEBUG_FAKE_PLAYERS}");
-    }
-
-    [ConsoleCommand("css_updatemap")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_UpdateMap(CCSPlayerController? caller, CommandInfo info)
-    {
-        CurrentMap = Server.MapName;
-        NotifyMapChange();
-        info.ReplyToCommand($"Attempting to notify server of current map: {Server.MapName}");
-    }
-
-    [ConsoleCommand("css_updateconfig")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_UpdateConfig(CCSPlayerController? caller, CommandInfo info)
-    {
-        NotifyServerConfig();
-    }
-
-    [ConsoleCommand("css_savepositions")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_SavePositions(CCSPlayerController? caller, CommandInfo info)
-    {
-        SaveAllPlayersPositions();
-    }
-
-    public CBaseEntity? GetObserverEntity(CCSPlayerController? observer)
-    {
-        if (!IsValid(observer))
-        {
-            return null;
-        }
-
-        var observerPawn = observer!.ObserverPawn?.Value;
-        if (observerPawn == null)
-        {
-            return null;
-        }
-
-        var observedEntity = observerPawn.ObserverServices?.ObserverTarget?.Value;
-        if (observedEntity != null && observedEntity.IsValid)
-        {
-            return observedEntity;
-        }
-
-        return null;
-    }
-
-    public CCSPlayerController? GetObserverTarget(CCSPlayerController? observer)
-    {
-        var observedEntity = GetObserverEntity(observer);
-        if (observedEntity == null || !observedEntity.IsValid)
-        {
-            return null;
-        }
-
-        if (observedEntity.DesignerName != "player")
-        {
-            return null;
-        }
-
-        var observedPlayerPawn = observedEntity.As<CCSPlayerPawn>();
-
-        if (observedPlayerPawn != null && observedPlayerPawn.IsValid)
-        {
-            var controller = observedPlayerPawn.Controller.Value;
-            if (controller == null)
-            {
-                return null;
-            }
-
-            var playerController = controller.As<CCSPlayerController>();
-            if (IsValid(playerController))
-            {
-                return playerController;
-            }
-        }
-
-        return null;
-    }
-
-    public ObserverMode_t? GetObserverMode(CCSPlayerController? observer)
-    {
-        if (observer == null || !IsValid(observer))
-        {
-            return ObserverMode_t.OBS_MODE_NONE;
-        }
-
-        var observerServices = observer.Pawn.Value?.ObserverServices;
-        if (observerServices != null)
-        {
-            var observerMode = observerServices.ObserverMode;
-            return (ObserverMode_t)observerMode;
-        }
-        return ObserverMode_t.OBS_MODE_NONE;
     }
 
     public void SaveAllPlayersPositions()
@@ -740,19 +513,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         // csharpier-ignore-end
     }
 
-    [ConsoleCommand("css_setdebugpos")]
-    [RequiresPermissions("#css/admin")]
-    public void Command_setdebugpos(CCSPlayerController? caller, CommandInfo info)
-    {
-        var origin = GetEyePosition(caller?.Pawn.Value);
-        if (origin != null)
-        {
-            debugPlayerPosition.X = origin.X;
-            debugPlayerPosition.Y = origin.Y;
-            debugPlayerPosition.Z = origin.Z;
-        }
-    }
-
     public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
     {
         if (!PlayerData.ContainsKey(playerSteamId))
@@ -774,64 +534,6 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
         PlayerData[playerSteamId].Team = Team;
         PlayerData[playerSteamId].IsAlive = playerIsAlive == 1 ? true : false;
         PlayerData[playerSteamId].SpectatingC4 = spectatingC4;
-    }
-
-    public bool IsValid(CCSPlayerController? playerController)
-    {
-        if (playerController == null)
-            return false;
-        if (playerController.IsValid == false)
-            return false;
-        if (playerController.IsHLTV)
-            return false;
-        if (playerController.Connected != PlayerConnectedState.PlayerConnected)
-            return false;
-        if (playerController.PlayerPawn?.Value == null)
-            return false;
-        if (playerController.PlayerPawn.IsValid == false)
-            return false;
-
-        return true;
-    }
-
-    public bool IsAlive(CCSPlayerController? player)
-    {
-        if (player != null && IsValid(player))
-        {
-            if (player!.Pawn.Value!.LifeState == (byte)LifeState_t.LIFE_ALIVE)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public Vector? CalculateForward(Vector origin, QAngle angle)
-    {
-        Vector _forward = new();
-        NativeAPI.AngleVectors(angle.Handle, _forward.Handle, 0, 0);
-        Vector _endOrigin = new(origin.X + _forward.X * 8192, origin.Y + _forward.Y * 8192, origin.Z + _forward.Z * 8192);
-        return _endOrigin;
-    }
-
-    public Vector? GetEyePosition<T>(T? playerPawn)
-        where T : CBasePlayerPawn
-    {
-        if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null || playerPawn.AbsOrigin == null)
-            return null;
-
-        var absOrigin = playerPawn.AbsOrigin.Clone();
-        var cameraServices = playerPawn.CameraServices;
-        return new Vector(absOrigin.X, absOrigin.Y, absOrigin.Z + cameraServices.OldPlayerViewOffsetZ);
-    }
-
-    public Vector? GetFreecamPlayerPosition(CCSPlayerController? player)
-    {
-        if (player == null || !IsValid(player))
-        {
-            return null;
-        }
-        return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone() ?? null;
     }
 
     public override void Unload(bool hotReload)
@@ -860,20 +562,4 @@ public class ProximityChat : BasePlugin, IPluginConfig<Config>
     public AssemblyName assemblyName = typeof(ProximityChat).Assembly.GetName();
     public string? AssemblyVersion => assemblyName.Version?.ToString(); // Version: x.x.x.x
     public string? PluginVersion => AssemblyVersion?.Remove(AssemblyVersion.Length - 2); // truncate to x.x.x
-}
-
-static class VectorExtensions
-{
-    public static Vector Clone(this Vector vector)
-    {
-        return new Vector(vector.X, vector.Y, vector.Z);
-    }
-}
-
-static class QAngleExtensions
-{
-    public static QAngle Clone(this QAngle angle)
-    {
-        return new QAngle(angle.X, angle.Y, angle.Z);
-    }
 }
