@@ -104,6 +104,16 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 NotifyServerConfig();
             }
         });
+
+        RegisterListener<Listeners.OnMapEnd>(() =>
+        {
+            // Triggers all players to have mono audio until they join a team again
+            foreach (var player in PlayerData)
+            {
+                player.Value.IsAlive = false;
+                player.Value.Team = 0;
+            }
+        });
     }
 
     public void CheckAdmin(SteamID? steamId)
@@ -508,7 +518,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             SaveData(10000000000000006, "franny", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
             SaveData(10000000000000007, "gunter", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
             SaveData(10000000000000008, "ian", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
-            SaveData(10000000000000009, "BOINK", debugPlayerPosition.X, debugPlayerPosition.Y, debugPlayerPosition.Z, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
+            SaveData(10000000000000009, "BOINK", debugPlayerPosition.X, debugPlayerPosition.Y, debugPlayerPosition.Z, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
         }
         // csharpier-ignore-end
     }
