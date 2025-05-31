@@ -15,8 +15,8 @@ namespace ProximityChat;
 
 public class ExceptionPayload
 {
-    public int Code { get; set; }
-    public string? Message { get; set; }
+    public int code { get; set; }
+    public string? message { get; set; }
 }
 
 public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
@@ -299,7 +299,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 (SocketIOResponse error) =>
                 {
                     var payload = error.GetValue<ExceptionPayload>(0);
-                    Logger.LogError(payload?.Message ?? "Unknown socket exception occurred.");
+                    Logger.LogError(payload?.message ?? "Unknown socket exception occurred.");
                     tryReconnectSocket = false;
                 }
             );
