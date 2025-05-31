@@ -61,4 +61,8 @@ public class Config : BasePluginConfig
     // Players are audible if they are within view, regardless of max distance settings
     [Key(9)]
     public bool AlwaysHearVisiblePlayers { get; set; } = true;
+
+    // High-pass filter frequency for dead player voices (0 = disabled, higher = thinner/radio-like)
+    [Key(10)]
+    public int DeadVoiceFilterFrequency { get; set; } = 750;
 }
