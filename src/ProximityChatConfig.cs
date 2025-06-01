@@ -65,4 +65,8 @@ public class Config : BasePluginConfig
     // High-pass filter frequency for dead player voices (0 = disabled, higher = thinner/radio-like)
     [Key(10)]
     public int DeadVoiceFilterFrequency { get; set; } = 750;
+
+    // Whether spectators are allowed to talk to alive players (false = muted, true = audible)
+    [Key(11)]
+    public bool SpectatorsCanTalk { get; set; } = false;
 }

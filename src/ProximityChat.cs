@@ -254,6 +254,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                             Config.OcclusionFalloffExponent = updatedConfig.OcclusionFalloffExponent;
                             Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
                             Config.DeadVoiceFilterFrequency = updatedConfig.DeadVoiceFilterFrequency;
+                            Config.SpectatorsCanTalk = updatedConfig.SpectatorsCanTalk;
 
                             Server.NextFrame(() =>
                             {
