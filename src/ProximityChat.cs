@@ -206,6 +206,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             );
             socket.OnConnected += (sender, e) =>
             {
+                Logger.LogInformation("Socket connected successfully.");
                 _ = Task.Run(
                     async () =>
                     {
@@ -272,7 +273,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
             socket.OnDisconnected += (sender, e) =>
             {
-                Logger.LogError($"Socket disconnected. You can try reconnecting by changing the map, or restarting the server.");
+                Logger.LogError("Socket disconnected. Please restart the server if it does not reconnect automatically.");
                 if (_cts != null)
                 {
                     _cts.Cancel();
