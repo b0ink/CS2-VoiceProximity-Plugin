@@ -60,8 +60,11 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   // The max distance the player can be heard
   "VolumeMaxDistance": 2000,
 
-  //  Players are audible if they are within view, regardless of max distance settings
-  "AlwaysHearVisiblePlayers": true
+  // Players are audible if they are within view, regardless of max distance settings
+  "AlwaysHearVisiblePlayers": true,
+
+  // Whether players can hear spectators or not
+  "SpectatorsCanTalk": false
 }
 ```
 
