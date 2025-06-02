@@ -19,6 +19,11 @@ public class ExceptionPayload
     public string? message { get; set; }
 }
 
+public class ServerRestartWarning
+{
+    public float minutes { get; set; }
+}
+
 public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
     public override string ModuleName => "Proximity Chat API";
@@ -268,6 +273,21 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     {
                         Logger.LogError(ex.Message);
                     }
+                }
+            );
+
+            socket.On(
+                "server-restart-warning",
+                (SocketIOResponse data) =>
+                {
+                    var payload = data.GetValue<ServerRestartWarning>(0);
+                    Server.NextFrame(() =>
+                    {
+                        Logger.LogWarning($"Socket server will restart in {payload.minutes * 60} seconds. Users will reconnect automatically.");
+                        Server.PrintToChatAll(
+                            $" {ChatColors.Green}Proximity Chat {ChatColors.Default}| {ChatColors.Red}API server will restart in {ChatColors.Default}{payload.minutes * 60} {ChatColors.Red}seconds. Users will reconnect automatically."
+                        );
+                    });
                 }
             );
 
