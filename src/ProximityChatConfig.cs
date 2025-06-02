@@ -48,7 +48,7 @@ public class Config : BasePluginConfig
     // Plug in `y=x^{exponent}` and zoom inbetween 0-1 on the X axis. The curve represents the sound occlusion falloff.
     // Set this value to 1 for a linear dropoff
     [Key(6)]
-    public float OcclusionFalloffExponent { get; set; } = 3;
+    public float OcclusionFalloffFactor { get; set; } = 3;
 
     // How quickly player voice volumes are reduced as you move away from them
     [Key(7)]
