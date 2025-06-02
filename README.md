@@ -52,7 +52,7 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   // higher = steeper drop near end
   // lower = steep drop off at the start, then more gradual fade towards the end
   // Set this to 1 for a linear fade
-  "OcclusionFalloffExponent": 3,
+  "OcclusionFalloffFactor": 3,
 
   // How quickly player voice volumes are reduced as you move away from them
   "VolumeFalloffFactor": 0.5,
