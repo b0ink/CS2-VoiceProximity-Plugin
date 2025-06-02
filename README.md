@@ -29,8 +29,8 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   // Note: API keys are region-specific and only work with their corresponding socket URL.
   "ApiKey": "YOUR_API_KEY_HERE",
 
-  // Number of milliseconds to wait before muting a player after they die.
-  "DeadPlayerMuteDelay": 1000,
+  // Number of seconds to wait before muting a player after they die.
+  "DeadPlayerMuteDelay": 1.0,
 
   // Allows dead teammates to communicate with each other while spectating.
   "AllowDeadTeamVoice": true,
