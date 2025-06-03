@@ -1,10 +1,40 @@
 ﻿using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Modules.Admin;
+using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
 
 namespace ProximityChat;
 
 public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
+    public void CheckAdmin(SteamID? steamId)
+    {
+        if (steamId?.SteamId64 == null)
+        {
+            return;
+        }
+
+        var steamId64 = steamId.SteamId64;
+        if (!PlayerData.ContainsKey((ulong)steamId64))
+        {
+            PlayerData[steamId64] = new PlayerData(steamId64.ToString(), $"{steamId64}");
+        }
+
+        PlayerData[steamId64].IsAdmin = false;
+
+        var adminFlags = Config.ServerConfigAdmins.Split(",").ToList();
+        if (adminFlags != null)
+        {
+            foreach (var flag in adminFlags)
+            {
+                if (AdminManager.PlayerHasPermissions(steamId, flag) || AdminManager.PlayerInGroup(steamId, flag))
+                {
+                    PlayerData[steamId64].IsAdmin = true;
+                }
+            }
+        }
+    }
+
     public CBaseEntity? GetObserverEntity(CCSPlayerController? observer)
     {
         if (!IsValid(observer))
@@ -132,6 +162,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             return null;
         }
         return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone() ?? null;
+    }
+
+    public string GetDoorKey(Vector origin)
+    {
+        return $"{(int)origin.X} {(int)origin.Y} {(int)origin.Z}";
     }
 }
 
