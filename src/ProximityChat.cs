@@ -606,7 +606,12 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public HookResult Event_RoundStart(EventRoundStart @event, GameEventInfo info)
     {
         DoorRotations.Clear();
-        foreach (var door in Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("prop_door_rotating"))
+
+        var doors = new List<CPropDoorRotating>();
+        doors.AddRange(Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("prop_door_rotating"));
+        doors.AddRange(Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("func_door_rotating"));
+
+        foreach (var door in doors)
         {
             if (door.AbsOrigin == null || door.AbsRotation == null)
             {
