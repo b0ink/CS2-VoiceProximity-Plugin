@@ -219,10 +219,12 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     {
                         while (!token.IsCancellationRequested)
                         {
-                            var payload = MessagePackSerializer.Serialize(PlayerData.Values.ToList());
+                            var playerList = PlayerData.Values.ToList();
+                            var payload = MessagePackSerializer.Serialize(playerList);
 
                             _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
-                            await Task.Delay(100, token);
+                            int delay = playerList.Count > 1 ? 100 : 1000;
+                            await Task.Delay(delay, token);
                         }
                     },
                     token
