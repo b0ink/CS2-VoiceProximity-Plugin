@@ -51,6 +51,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public Dictionary<string, int> DoorRotations = new();
     public List<CPropDoorRotating?> DoorEntities = new();
 
+    public List<string?> fakeBots = new();
+
     public override void Load(bool hotReload)
     {
         if (Config.ApiKey == null)
@@ -327,7 +329,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 (SocketIOResponse error) =>
                 {
                     var payload = error.GetValue<ExceptionPayload>(0);
-                    Logger.LogError(payload?.message ?? "Unknown socket exception occurred.");
+                    Log(payload?.message ?? "Unknown socket exception occurred.", ConsoleColor.Red);
                     tryReconnectSocket = false;
                 }
             );
@@ -393,12 +395,12 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             return;
         }
 
-        if (player.AuthorizedSteamID?.SteamId64 == null)
+        if (player.AuthorizedSteamID?.SteamId64 == null && !DEBUG_FAKE_PLAYERS)
         {
             return;
         }
 
-        var playerSteamId = (ulong)player.AuthorizedSteamID.SteamId64;
+        var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
 
         float OriginX = 0f;
         float OriginY = 0f;
@@ -534,21 +536,27 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             CheckAdmin(player.AuthorizedSteamID);
         }
-        // csharpier-ignore-start
-        SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
-        if (DEBUG_FAKE_PLAYERS)
+        if (playerSteamId != 0)
         {
-            SaveData(10000000000000001, "bob", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
-            SaveData(10000000000000002, "john", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
-            SaveData(10000000000000003, "april", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
-            SaveData(10000000000000004, "carl", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 2, playerIsAlive, spectatingC4);
-            SaveData(10000000000000005, "ethan", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
-            SaveData(10000000000000006, "franny", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
-            SaveData(10000000000000007, "gunter", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
-            SaveData(10000000000000008, "ian", OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, 3, playerIsAlive, spectatingC4);
-            SaveData(10000000000000009, "BOINK", debugPlayerPosition.X, debugPlayerPosition.Y, debugPlayerPosition.Z, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+            SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
         }
-        // csharpier-ignore-end
+        else
+        {
+            if (DEBUG_FAKE_PLAYERS)
+            {
+                int index = fakeBots.IndexOf(player.PlayerName);
+                ulong steamid;
+                if (index + 1 < 10)
+                {
+                    ulong.TryParse($"1000000000000000{index + 1}", out steamid);
+                }
+                else
+                {
+                    ulong.TryParse($"100000000000000{index + 1}", out steamid);
+                }
+                SaveData(steamid, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+            }
+        }
     }
 
     public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
@@ -623,6 +631,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             var key = GetDoorKey(door.AbsOrigin);
             DoorRotations[key] = 999;
         }
+
+        fakeBots.Clear();
+        foreach (var bot in Utilities.GetPlayers().Where(IsValid).Where(p => p.IsBot))
+        {
+            fakeBots.Add(bot.PlayerName);
+        }
+
         return HookResult.Continue;
     }
 
@@ -647,6 +662,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public void OnConfigParsed(Config config)
     {
         this.Config = config;
+    }
+
+    private void Log(string message, ConsoleColor color = ConsoleColor.White)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"[{this.ModuleName}] {message}");
+        Console.ResetColor();
     }
 
     public AssemblyName assemblyName = typeof(ProximityChat).Assembly.GetName();
