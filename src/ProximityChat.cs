@@ -51,6 +51,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public Dictionary<string, int> DoorRotations = new();
     public List<CPropDoorRotating?> DoorEntities = new();
 
+    public float _nextSaveAt;
+
     public override void Load(bool hotReload)
     {
         if (Config.ApiKey == null)
@@ -60,6 +62,9 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
 
         CurrentMap = Server.MapName;
+
+        // TODO: try/catch this, CRayTrace should be an optional extension
+        CRayTrace.Init();
 
         RegisterListener<Listeners.OnTick>(() =>
         {
@@ -90,6 +95,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     });
                 }
             }
+
+            var now = Server.CurrentTime;
+
+            if (now < _nextSaveAt)
+                return;
+
+            _nextSaveAt = now + 0.1f; // 100ms
 
             SaveAllPlayersPositions();
 
@@ -366,9 +378,17 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
+    public TraceOptions traceOptions = new TraceOptions(
+        interactsAs: 0,
+        interactsWith: InteractionLayers.WorldGeometry | InteractionLayers.Solid | InteractionLayers.Window,
+        interactsExclude: InteractionLayers.Player | InteractionLayers.NPC,
+        drawBeam: false
+    );
+
     public void SaveAllPlayersPositions()
     {
-        foreach (var player in Utilities.GetPlayers().Where(IsValid))
+        var players = Utilities.GetPlayers().Where(IsValid);
+        foreach (var player in players)
         {
             //if (player.IsBot) continue; // ignore bots
 
@@ -383,7 +403,93 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 }
             }
             SavePlayerData(player, useObserverPawn);
+            foreach (var target in players)
+            {
+                if (target.Index == player.Index)
+                {
+                    // Ignore self
+                    continue;
+                }
+                var playerOrigin = GetEyePosition(player.PlayerPawn.Value);
+                var targetOrigin = GetEyePosition(target.PlayerPawn.Value);
+
+                if (playerOrigin == null || targetOrigin == null)
+                {
+                    continue;
+                }
+
+                var SoundLeft = CalculatePoint(playerOrigin, targetOrigin, 31, true);
+                var SoundRight = CalculatePoint(playerOrigin, targetOrigin, 31, false);
+                var ListenerLeft = CalculatePoint(targetOrigin, playerOrigin, 31, true);
+                var ListenerRight = CalculatePoint(targetOrigin, playerOrigin, 31, false);
+
+                var success = CRayTrace.TraceEndShape(playerOrigin, targetOrigin, player.PlayerPawn.Value, traceOptions, out TraceResult result);
+                List<bool> lines = new();
+
+                lines.Add(Trace(playerOrigin, targetOrigin, player));
+
+                // MEDIUM
+                lines.Add(Trace(SoundLeft, ListenerLeft, player));
+                lines.Add(Trace(SoundRight, ListenerRight, player));
+
+                // HIGH
+                lines.Add(Trace(SoundLeft, targetOrigin, player));
+                lines.Add(Trace(SoundRight, targetOrigin, player));
+
+                // VERYHIGH
+                lines.Add(Trace(playerOrigin, ListenerLeft, player));
+                lines.Add(Trace(playerOrigin, ListenerRight, player));
+
+                // ULTRA
+                lines.Add(Trace(SoundLeft, ListenerRight, player));
+                lines.Add(Trace(SoundRight, ListenerLeft, player));
+            }
         }
+    }
+
+    public bool Trace(Vector from, Vector to, CBaseEntity ignore)
+    {
+        var success = CRayTrace.TraceEndShape(
+            from,
+            to,
+            ignore, // ignore speaker
+            traceOptions,
+            out TraceResult result
+        );
+
+        if (!success)
+            return false;
+
+        return result.DidHit; // or refine if needed
+    }
+
+    public Vector CalculatePoint(Vector a, Vector b, float m, bool positive)
+    {
+        // Distance in XZ plane
+        float dx = a.X - b.X;
+        float dz = a.Z - b.Z;
+
+        float n = MathF.Sqrt(dx * dx + dz * dz);
+        if (n == 0f)
+            return new Vector(a.X, a.Y, a.Z); // avoid divide-by-zero
+
+        float mn = m / n;
+
+        float x,
+            z;
+
+        if (positive)
+        {
+            x = a.X + mn * (a.Z - b.Z);
+            z = a.Z - mn * (a.X - b.X);
+        }
+        else
+        {
+            x = a.X - mn * (a.Z - b.Z);
+            z = a.Z + mn * (a.X - b.X);
+        }
+
+        return new Vector(x, a.Y, z);
     }
 
     public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)

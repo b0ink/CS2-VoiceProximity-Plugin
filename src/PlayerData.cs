@@ -41,9 +41,13 @@ public class PlayerData
     [Key(11)]
     public bool SpectatingC4 { get; set; }
 
+    [Key(12)]
+    public Dictionary<string, int> OcclusionFraction { get; set; }
+
     public PlayerData(string steamId, string name)
     {
         this.SteamId = steamId;
         this.Name = name;
+        this.OcclusionFraction = new Dictionary<string, int>();
     }
 }

@@ -150,7 +150,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null || playerPawn.AbsOrigin == null)
             return null;
 
-        var origin = playerPawn.AbsOrigin.Clone();
+        //var origin = playerPawn.AbsOrigin.Clone();
+        var origin = playerPawn.AbsOrigin;
         var viewOffsetZ = playerPawn.ViewOffset.Z;
 
         return new Vector(origin.X, origin.Y, origin.Z + viewOffsetZ);
