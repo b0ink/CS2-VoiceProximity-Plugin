@@ -3,11 +3,13 @@ using System.Reflection;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
+using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Extensions;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using Microsoft.Extensions.Logging;
+using RayTraceAPI;
 using SocketIOClient;
 
 namespace ProximityChat;
@@ -28,6 +30,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public override string ModuleName => "Proximity Chat API";
     public override string ModuleAuthor => "b0ink";
     public override string ModuleVersion => PluginVersion ?? "n/a";
+
+    internal static PluginCapability<CRayTraceInterface> RayTraceInterface { get; } = new("raytrace:craytraceinterface");
 
     public Config Config { get; set; } = new();
 
@@ -52,6 +56,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public List<CPropDoorRotating?> DoorEntities = new();
 
     public List<string?> fakeBots = new();
+
+    public float _nextSaveAt;
 
     public override void Load(bool hotReload)
     {
@@ -92,6 +98,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     });
                 }
             }
+
+            var now = Server.CurrentTime;
+
+            if (now < _nextSaveAt)
+                return;
+
+            _nextSaveAt = now + 0.1f; // 100ms
 
             SaveAllPlayersPositions();
 
@@ -368,9 +381,21 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
+    public TraceOptions traceOptions = new TraceOptions(
+        interactsAs: 0,
+        interactsWith: InteractionLayers.WorldGeometry | InteractionLayers.Solid | InteractionLayers.Window,
+        interactsExclude: InteractionLayers.Player | InteractionLayers.NPC,
+        drawBeam: false
+    );
+
     public void SaveAllPlayersPositions()
     {
-        foreach (var player in Utilities.GetPlayers().Where(IsValid))
+        var rayTrace = RayTraceInterface.Get();
+        if (rayTrace == null)
+            return;
+
+        var players = Utilities.GetPlayers().Where(IsValid);
+        foreach (var player in players)
         {
             //if (player.IsBot) continue; // ignore bots
 
@@ -385,7 +410,116 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 }
             }
             SavePlayerData(player, useObserverPawn);
+            foreach (var target in players)
+            {
+                if (target.Index == player.Index)
+                {
+                    // Ignore self
+                    continue;
+                }
+                var playerOrigin = GetEyePosition(player.PlayerPawn.Value);
+                var targetOrigin = GetEyePosition(target.PlayerPawn.Value);
+
+                if (playerOrigin == null || targetOrigin == null)
+                {
+                    continue;
+                }
+
+                int widening = 31;
+                var SoundLeft = CalculatePoint(playerOrigin, targetOrigin, widening, true);
+                var SoundRight = CalculatePoint(playerOrigin, targetOrigin, widening, false);
+                var ListenerLeft = CalculatePoint(targetOrigin, playerOrigin, widening, true);
+                var ListenerRight = CalculatePoint(targetOrigin, playerOrigin, widening, false);
+
+                int totalHits = 0;
+
+                totalHits += Trace(rayTrace, playerOrigin, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
+
+                // MEDIUM
+                totalHits += Trace(rayTrace, SoundLeft, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, SoundRight, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
+
+                // HIGH
+                totalHits += Trace(rayTrace, SoundLeft, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, SoundRight, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
+
+                // VERYHIGH
+                totalHits += Trace(rayTrace, playerOrigin, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, playerOrigin, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
+
+                // ULTRA
+                totalHits += Trace(rayTrace, SoundLeft, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, SoundRight, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
+
+                float fraction = (float)totalHits / 9f;
+                //float fraction = (float)totalHits / 1f;
+
+                var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
+                //var targetSteamId = (ulong)(target.AuthorizedSteamID?.SteamId64 ?? (ulong)target.UserId!);
+
+                // TODO: store occlusion in a 2D matrix (from -> to)
+                // TODO: memoize per player-pair to avoid duplicate traces
+                // TODO: note: occlusion isn't symmetric (e.g. one player can be inside geometry, and have no ray hits)
+                // TODO: optimization: if either direction reports fully occluded (fraction == 1), reuse it to skip extra traces
+
+                PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
+            }
         }
+
+        foreach (var (steamId, data) in PlayerData)
+        {
+            Console.WriteLine($"Player: {data.Name} ({steamId})");
+
+            foreach (var (targetName, fraction) in data.OcclusionFraction)
+            {
+                Console.WriteLine($"  -> {targetName}: {fraction}");
+            }
+        }
+    }
+
+    public bool Trace(CRayTraceInterface rayTrace, Vector from, Vector to, CBaseEntity ignore)
+    {
+        var success = rayTrace.TraceEndShape(
+            from,
+            to,
+            ignore, // ignore speaker
+            traceOptions,
+            out TraceResult result
+        );
+
+        if (!success)
+            return false;
+
+        return result.DidHit; // or refine if needed
+    }
+
+    public Vector CalculatePoint(Vector a, Vector b, float m, bool positive)
+    {
+        // Distance in XZ plane
+        float dx = a.X - b.X;
+        float dz = a.Z - b.Z;
+
+        float n = MathF.Sqrt(dx * dx + dz * dz);
+        if (n == 0f)
+            return new Vector(a.X, a.Y, a.Z); // avoid divide-by-zero
+
+        float mn = m / n;
+
+        float x,
+            z;
+
+        if (positive)
+        {
+            x = a.X + mn * (a.Z - b.Z);
+            z = a.Z - mn * (a.X - b.X);
+        }
+        else
+        {
+            x = a.X - mn * (a.Z - b.Z);
+            z = a.Z + mn * (a.X - b.X);
+        }
+
+        return new Vector(x, a.Y, z);
     }
 
     public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)
