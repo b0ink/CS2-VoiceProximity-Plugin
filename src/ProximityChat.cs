@@ -3,11 +3,13 @@ using System.Reflection;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
+using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Extensions;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using Microsoft.Extensions.Logging;
+using RayTraceAPI;
 using SocketIOClient;
 
 namespace ProximityChat;
@@ -28,6 +30,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public override string ModuleName => "Proximity Chat API";
     public override string ModuleAuthor => "b0ink";
     public override string ModuleVersion => PluginVersion ?? "n/a";
+
+    internal static PluginCapability<CRayTraceInterface> RayTraceInterface { get; } = new("raytrace:craytraceinterface");
 
     public Config Config { get; set; } = new();
 
@@ -64,9 +68,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
 
         CurrentMap = Server.MapName;
-
-        // TODO: try/catch this, CRayTrace should be an optional extension
-        CRayTrace.Init();
 
         RegisterListener<Listeners.OnTick>(() =>
         {
@@ -389,6 +390,10 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public void SaveAllPlayersPositions()
     {
+        var rayTrace = RayTraceInterface.Get();
+        if (rayTrace == null)
+            return;
+
         var players = Utilities.GetPlayers().Where(IsValid);
         foreach (var player in players)
         {
@@ -420,38 +425,61 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     continue;
                 }
 
-                var SoundLeft = CalculatePoint(playerOrigin, targetOrigin, 31, true);
-                var SoundRight = CalculatePoint(playerOrigin, targetOrigin, 31, false);
-                var ListenerLeft = CalculatePoint(targetOrigin, playerOrigin, 31, true);
-                var ListenerRight = CalculatePoint(targetOrigin, playerOrigin, 31, false);
+                int widening = 31;
+                var SoundLeft = CalculatePoint(playerOrigin, targetOrigin, widening, true);
+                var SoundRight = CalculatePoint(playerOrigin, targetOrigin, widening, false);
+                var ListenerLeft = CalculatePoint(targetOrigin, playerOrigin, widening, true);
+                var ListenerRight = CalculatePoint(targetOrigin, playerOrigin, widening, false);
 
-                var success = CRayTrace.TraceEndShape(playerOrigin, targetOrigin, player.PlayerPawn.Value, traceOptions, out TraceResult result);
-                List<bool> lines = new();
+                int totalHits = 0;
 
-                lines.Add(Trace(playerOrigin, targetOrigin, player));
+                totalHits += Trace(rayTrace, playerOrigin, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
 
                 // MEDIUM
-                lines.Add(Trace(SoundLeft, ListenerLeft, player));
-                lines.Add(Trace(SoundRight, ListenerRight, player));
+                totalHits += Trace(rayTrace, SoundLeft, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, SoundRight, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
 
                 // HIGH
-                lines.Add(Trace(SoundLeft, targetOrigin, player));
-                lines.Add(Trace(SoundRight, targetOrigin, player));
+                totalHits += Trace(rayTrace, SoundLeft, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, SoundRight, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
 
                 // VERYHIGH
-                lines.Add(Trace(playerOrigin, ListenerLeft, player));
-                lines.Add(Trace(playerOrigin, ListenerRight, player));
+                totalHits += Trace(rayTrace, playerOrigin, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, playerOrigin, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
 
                 // ULTRA
-                lines.Add(Trace(SoundLeft, ListenerRight, player));
-                lines.Add(Trace(SoundRight, ListenerLeft, player));
+                totalHits += Trace(rayTrace, SoundLeft, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
+                totalHits += Trace(rayTrace, SoundRight, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
+
+                float fraction = (float)totalHits / 9f;
+                //float fraction = (float)totalHits / 1f;
+
+                var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
+                //var targetSteamId = (ulong)(target.AuthorizedSteamID?.SteamId64 ?? (ulong)target.UserId!);
+
+                // TODO: store occlusion in a 2D matrix (from -> to)
+                // TODO: memoize per player-pair to avoid duplicate traces
+                // TODO: note: occlusion isn't symmetric (e.g. one player can be inside geometry, and have no ray hits)
+                // TODO: optimization: if either direction reports fully occluded (fraction == 1), reuse it to skip extra traces
+
+                PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
+            }
+        }
+
+        foreach (var (steamId, data) in PlayerData)
+        {
+            Console.WriteLine($"Player: {data.Name} ({steamId})");
+
+            foreach (var (targetName, fraction) in data.OcclusionFraction)
+            {
+                Console.WriteLine($"  -> {targetName}: {fraction}");
             }
         }
     }
 
-    public bool Trace(Vector from, Vector to, CBaseEntity ignore)
+    public bool Trace(CRayTraceInterface rayTrace, Vector from, Vector to, CBaseEntity ignore)
     {
-        var success = CRayTrace.TraceEndShape(
+        var success = rayTrace.TraceEndShape(
             from,
             to,
             ignore, // ignore speaker
