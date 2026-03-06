@@ -105,8 +105,9 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 return;
 
             _nextSaveAt = now + 0.1f; // 100ms
-
+            //positionsReady = false;
             SaveAllPlayersPositions();
+            //positionsReady = true;
 
             for (int i = 0; i < Server.MaxPlayers; i++)
             {
@@ -236,6 +237,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                         {
                             var playerList = PlayerData.Values.ToList();
                             var payload = MessagePackSerializer.Serialize(playerList);
+
+                            // TODO: check to see if positionsReady = true, we could reduce the task.delay to like 20ms,
 
                             _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
                             int delay = playerList.Count > 1 ? 100 : 1000;
@@ -394,6 +397,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (rayTrace == null)
             return;
 
+        var occlusionMemo = new Dictionary<(ulong from, ulong to), float>();
+
         var players = Utilities.GetPlayers().Where(IsValid);
         foreach (var player in players)
         {
@@ -417,6 +422,29 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     // Ignore self
                     continue;
                 }
+
+                //var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
+                //var targetSteamId = (ulong)(target.AuthorizedSteamID?.SteamId64 ?? 0);
+                var playerSteamId = (ulong)(player.UserId ?? 0);
+                var targetSteamId = (ulong)(target.UserId ?? 0);
+
+                // canonical ordering (smallest first)
+                var key = playerSteamId < targetSteamId ? (playerSteamId, targetSteamId) : (targetSteamId, playerSteamId);
+
+                if (!PlayerData.TryGetValue(playerSteamId, out var pdata))
+                {
+                    pdata = new PlayerData(playerSteamId.ToString(), player.PlayerName); // or whatever ctor you have
+                    PlayerData[playerSteamId] = pdata;
+                }
+
+                if (occlusionMemo.TryGetValue(key, out var fraction))
+                {
+                    pdata.OcclusionFraction[target.PlayerName] = fraction;
+
+                    //PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
+                    continue;
+                }
+
                 var playerOrigin = GetEyePosition(player.PlayerPawn.Value);
                 var targetOrigin = GetEyePosition(target.PlayerPawn.Value);
 
@@ -435,44 +463,52 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
                 totalHits += Trace(rayTrace, playerOrigin, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
 
-                // MEDIUM
+                //MEDIUM
                 totalHits += Trace(rayTrace, SoundLeft, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
                 totalHits += Trace(rayTrace, SoundRight, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
 
-                // HIGH
+                //HIGH
                 totalHits += Trace(rayTrace, SoundLeft, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
                 totalHits += Trace(rayTrace, SoundRight, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
 
-                // VERYHIGH
+                //VERYHIGH
                 totalHits += Trace(rayTrace, playerOrigin, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
                 totalHits += Trace(rayTrace, playerOrigin, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
 
-                // ULTRA
+                //ULTRA
                 totalHits += Trace(rayTrace, SoundLeft, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
                 totalHits += Trace(rayTrace, SoundRight, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
 
-                float fraction = (float)totalHits / 9f;
+                fraction = (float)totalHits / 1f;
                 //float fraction = (float)totalHits / 1f;
 
-                var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
+                //var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
                 //var targetSteamId = (ulong)(target.AuthorizedSteamID?.SteamId64 ?? (ulong)target.UserId!);
 
                 // TODO: store occlusion in a 2D matrix (from -> to)
                 // TODO: memoize per player-pair to avoid duplicate traces
-                // TODO: note: occlusion isn't symmetric (e.g. one player can be inside geometry, and have no ray hits)
-                // TODO: optimization: if either direction reports fully occluded (fraction == 1), reuse it to skip extra traces
 
-                PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
+                occlusionMemo[key] = fraction;
+
+                pdata.OcclusionFraction[target.PlayerName] = fraction;
+
+                //PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
             }
         }
 
-        foreach (var (steamId, data) in PlayerData)
+        if (Server.TickCount % 64 == 0)
         {
-            Console.WriteLine($"Player: {data.Name} ({steamId})");
-
-            foreach (var (targetName, fraction) in data.OcclusionFraction)
+            foreach (var (steamId, data) in PlayerData)
             {
-                Console.WriteLine($"  -> {targetName}: {fraction}");
+                if (data.Name == "boink")
+                {
+                    Console.WriteLine($"Player: {data.Name} ({steamId})");
+
+                    foreach (var (targetName, fraction) in data.OcclusionFraction)
+                    {
+                        Console.WriteLine($"  -> {targetName}: {fraction}");
+                    }
+                }
             }
         }
     }
