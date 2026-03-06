@@ -479,9 +479,18 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public bool Trace(CRayTraceInterface rayTrace, Vector from, Vector to, CBaseEntity ignore)
     {
-        var success = rayTrace.TraceEndShape(
+        // Ray trace
+        float hullRadius = 1.0f;
+
+        // Small cube hull (1x1x1 by default)
+        Vector mins = new Vector(-hullRadius, -hullRadius, -hullRadius);
+        Vector maxs = new Vector(hullRadius, hullRadius, hullRadius);
+
+        var success = rayTrace.TraceHullShape(
             from,
             to,
+            mins,
+            maxs,
             ignore, // ignore speaker
             traceOptions,
             out TraceResult result
