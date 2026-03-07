@@ -6,6 +6,10 @@
 
 This plugin sends player positions and camera angles to the API server, which then broadcasts the data to connected users in the Voice app, where positional audio and sound occlusion are calculated.
 
+## Requirements
+
+- Install the latest [Ray-Trace release](https://github.com/FUNPLAY-pro-CS2/Ray-Trace) on your server, including both the Metamod extension and the CounterStrikeSharp shared plugin (`RayTraceImpl`).
+
 ## Links
 
 [Voice Chat Client](https://github.com/b0ink/CS2-VoiceProximity-Client)
@@ -64,7 +68,7 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   "AlwaysHearVisiblePlayers": true,
 
   // Whether players can hear spectators or not
-  "SpectatorsCanTalk": false
+  "SpectatorsCanTalk": false,
 }
 ```
 

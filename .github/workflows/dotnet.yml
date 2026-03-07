@@ -22,11 +22,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          submodules: recursive
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 8.0.x
+
       - name: Restore
         run: dotnet restore
 
@@ -52,6 +55,8 @@ jobs:
           cp ${{ env.OUTPUT_PATH }}/SocketIO.Core.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.Core.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.SystemTextJson.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/RayTraceApi.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/RayTraceApi.pdb ${{ env.RELEASE_PATH }}
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5
