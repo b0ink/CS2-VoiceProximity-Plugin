@@ -68,7 +68,7 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
   "AlwaysHearVisiblePlayers": true,
 
   // Whether players can hear spectators or not
-  "SpectatorsCanTalk": false
+  "SpectatorsCanTalk": false,
 }
 ```
 
