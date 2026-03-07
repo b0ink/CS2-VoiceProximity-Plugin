@@ -1,0 +1,3 @@
+[submodule "RayTraceApi"]
+	path = RayTraceApi
+	url = https://github.com/FUNPLAY-pro-CS2/Ray-Trace.git
