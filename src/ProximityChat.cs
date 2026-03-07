@@ -62,8 +62,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private const int OcclusionWindowTicks = 6;
     private const int MinOcclusionTraceQuality = 1;
     private const int MaxOcclusionTraceQuality = 5;
-    private bool DebugLogPlayerPositionsEmit = true;
-
     public int OcclusionTraceQuality { get; private set; } = 5;
 
     private byte[]? _pendingPlayerPositionsPayload;
