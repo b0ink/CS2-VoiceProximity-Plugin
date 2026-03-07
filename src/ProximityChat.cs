@@ -1,5 +1,6 @@
-﻿using System.Net;
+using System.Net;
 using System.Reflection;
+using System.Text;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
@@ -57,7 +58,36 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public List<string?> fakeBots = new();
 
-    public float _nextSaveAt;
+    private const float PlayerPositionsEmitIntervalSeconds = 0.1f;
+    private const int OcclusionWindowTicks = 6;
+    private const int MinOcclusionTraceQuality = 1;
+    private const int MaxOcclusionTraceQuality = 5;
+    private bool DebugLogPlayerPositionsEmit = true;
+
+    public int OcclusionTraceQuality { get; private set; } = 5;
+
+    private byte[]? _pendingPlayerPositionsPayload;
+    private float _lastPlayerPositionsEmitAt = 0f;
+
+    private bool _occlusionCycleInProgress = false;
+    private int _occlusionTicksRemaining = 0;
+    private int _occlusionPairIndex = 0;
+    private int _cycleTraceQuality = 5;
+    private readonly List<(ulong from, ulong to)> _occlusionPairs = new();
+    private readonly Dictionary<ulong, OcclusionSnapshot> _occlusionSnapshot = new();
+    private readonly List<ulong> _occlusionCycleSteamIds = new();
+
+    private sealed class OcclusionSnapshot
+    {
+        public Vector Origin { get; }
+        public CBaseEntity IgnoreEntity { get; }
+
+        public OcclusionSnapshot(Vector origin, CBaseEntity ignoreEntity)
+        {
+            Origin = origin;
+            IgnoreEntity = ignoreEntity;
+        }
+    }
 
     public override void Load(bool hotReload)
     {
@@ -100,14 +130,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
 
             var now = Server.CurrentTime;
-
-            if (now < _nextSaveAt)
-                return;
-
-            _nextSaveAt = now + 0.1f; // 100ms
-            //positionsReady = false;
-            SaveAllPlayersPositions();
-            //positionsReady = true;
+            // Deprecated flow (removed): `_nextSaveAt` debounce + full SaveAllPlayersPositions() every 100ms.
+            TickPlayerPositionPipeline(now);
 
             for (int i = 0; i < Server.MaxPlayers; i++)
             {
@@ -192,11 +216,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 _socketTask = null;
             }
             _cts = new CancellationTokenSource();
-            _socketTask = Task.Run(() => InitSocketIO(_cts.Token));
+            _socketTask = Task.Run(() => InitSocketIO());
         });
     }
 
-    private async Task InitSocketIO(CancellationToken token)
+    private async Task InitSocketIO()
     {
         var query = new List<KeyValuePair<string, string>>();
         if (Config.ApiKey != null)
@@ -229,27 +253,14 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             );
             socket.OnConnected += (sender, e) =>
             {
-                Logger.LogInformation("Socket connected successfully.");
-                _ = Task.Run(
-                    async () =>
-                    {
-                        while (!token.IsCancellationRequested)
-                        {
-                            var playerList = PlayerData.Values.ToList();
-                            var payload = MessagePackSerializer.Serialize(playerList);
-
-                            // TODO: check to see if positionsReady = true, we could reduce the task.delay to like 20ms,
-
-                            _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
-                            int delay = playerList.Count > 1 ? 100 : 1000;
-                            await Task.Delay(delay, token);
-                        }
-                    },
-                    token
-                );
-
                 Server.NextFrame(() =>
                 {
+                    Logger.LogInformation("Socket connected successfully.");
+                    _lastPlayerPositionsEmitAt = Server.CurrentTime - PlayerPositionsEmitIntervalSeconds;
+                    _pendingPlayerPositionsPayload = null;
+                    ResetOcclusionCycleState();
+                    // Deprecated flow (removed): background Task loop emitting player-positions on a fixed delay.
+
                     AddTimer(
                         3,
                         () =>
@@ -316,6 +327,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             socket.OnDisconnected += (sender, e) =>
             {
                 Logger.LogError("Socket disconnected. Please restart the server if it does not reconnect automatically.");
+                _pendingPlayerPositionsPayload = null;
+                ResetOcclusionCycleState();
                 if (_cts != null)
                 {
                     _cts.Cancel();
@@ -391,126 +404,333 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         drawBeam: false
     );
 
+    public bool TrySetOcclusionTraceQuality(int quality)
+    {
+        if (quality < MinOcclusionTraceQuality || quality > MaxOcclusionTraceQuality)
+        {
+            return false;
+        }
+
+        SetOcclusionTraceQuality(quality);
+        return true;
+    }
+
+    public void SetOcclusionTraceQuality(int quality)
+    {
+        OcclusionTraceQuality = Math.Clamp(quality, MinOcclusionTraceQuality, MaxOcclusionTraceQuality);
+    }
+
+    public int GetTraceCountForQuality(int quality)
+    {
+        int clamped = Math.Clamp(quality, MinOcclusionTraceQuality, MaxOcclusionTraceQuality);
+        if (clamped == 1)
+        {
+            return 1;
+        }
+        if (clamped == 2)
+        {
+            return 3;
+        }
+        if (clamped == 3)
+        {
+            return 5;
+        }
+        if (clamped == 4)
+        {
+            return 7;
+        }
+        return 9;
+    }
+
     public void SaveAllPlayersPositions()
     {
-        var rayTrace = RayTraceInterface.Get();
-        if (rayTrace == null)
+        BeginOcclusionCycle();
+        while (_occlusionCycleInProgress)
+        {
+            ProcessOcclusionCycleTick();
+        }
+    }
+
+    private void TickPlayerPositionPipeline(float now)
+    {
+        if (now < _lastPlayerPositionsEmitAt)
+        {
+            _lastPlayerPositionsEmitAt = now - PlayerPositionsEmitIntervalSeconds;
+        }
+
+        if (socket == null || !socket.Connected)
+        {
+            _pendingPlayerPositionsPayload = null;
+            ResetOcclusionCycleState();
             return;
+        }
 
-        var occlusionMemo = new Dictionary<(ulong from, ulong to), float>();
+        if (!_occlusionCycleInProgress && _pendingPlayerPositionsPayload == null)
+        {
+            BeginOcclusionCycle();
+        }
 
-        var players = Utilities.GetPlayers().Where(IsValid);
+        if (_occlusionCycleInProgress)
+        {
+            ProcessOcclusionCycleTick();
+        }
+
+        if (_pendingPlayerPositionsPayload == null)
+        {
+            return;
+        }
+
+        if (now - _lastPlayerPositionsEmitAt < PlayerPositionsEmitIntervalSeconds)
+        {
+            return;
+        }
+
+        var payload = _pendingPlayerPositionsPayload;
+        _pendingPlayerPositionsPayload = null;
+        _lastPlayerPositionsEmitAt = now;
+        _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
+    }
+
+    private void BeginOcclusionCycle()
+    {
+        ResetOcclusionCycleState();
+
+        var players = Utilities.GetPlayers().Where(IsValid).ToList();
+
         foreach (var player in players)
         {
-            //if (player.IsBot) continue; // ignore bots
+            var playerPawn = player.PlayerPawn?.Value;
+            if (playerPawn == null || !playerPawn.IsValid)
+            {
+                continue;
+            }
 
             bool useObserverPawn = false;
-            if (player.PlayerPawn.Value!.LifeState != (byte)LifeState_t.LIFE_ALIVE)
+            if (playerPawn.LifeState != (byte)LifeState_t.LIFE_ALIVE)
             {
                 // Keep the camera position in the same spot for a few seconds before teleporting to the player they're spectating
-                float timeSinceDeath = Server.CurrentTime - player.PlayerPawn.Value.DeathTime;
+                float timeSinceDeath = Server.CurrentTime - playerPawn.DeathTime;
                 if (timeSinceDeath >= 3)
                 {
                     useObserverPawn = true;
                 }
             }
+
             SavePlayerData(player, useObserverPawn);
-            foreach (var target in players)
+
+            ulong steamId = GetPlayerDataSteamId(player);
+            if (steamId == 0)
             {
-                if (target.Index == player.Index)
-                {
-                    // Ignore self
-                    continue;
-                }
-
-                //var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
-                //var targetSteamId = (ulong)(target.AuthorizedSteamID?.SteamId64 ?? 0);
-                var playerSteamId = (ulong)(player.UserId ?? 0);
-                var targetSteamId = (ulong)(target.UserId ?? 0);
-
-                // canonical ordering (smallest first)
-                var key = playerSteamId < targetSteamId ? (playerSteamId, targetSteamId) : (targetSteamId, playerSteamId);
-
-                if (!PlayerData.TryGetValue(playerSteamId, out var pdata))
-                {
-                    pdata = new PlayerData(playerSteamId.ToString(), player.PlayerName); // or whatever ctor you have
-                    PlayerData[playerSteamId] = pdata;
-                }
-
-                if (occlusionMemo.TryGetValue(key, out var fraction))
-                {
-                    pdata.OcclusionFraction[target.PlayerName] = fraction;
-
-                    //PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
-                    continue;
-                }
-
-                var playerOrigin = GetEyePosition(player.PlayerPawn.Value);
-                var targetOrigin = GetEyePosition(target.PlayerPawn.Value);
-
-                if (playerOrigin == null || targetOrigin == null)
-                {
-                    continue;
-                }
-
-                int widening = 31;
-                var SoundLeft = CalculatePoint(playerOrigin, targetOrigin, widening, true);
-                var SoundRight = CalculatePoint(playerOrigin, targetOrigin, widening, false);
-                var ListenerLeft = CalculatePoint(targetOrigin, playerOrigin, widening, true);
-                var ListenerRight = CalculatePoint(targetOrigin, playerOrigin, widening, false);
-
-                int totalHits = 0;
-
-                totalHits += Trace(rayTrace, playerOrigin, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
-
-                //MEDIUM
-                totalHits += Trace(rayTrace, SoundLeft, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
-                totalHits += Trace(rayTrace, SoundRight, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
-
-                //HIGH
-                totalHits += Trace(rayTrace, SoundLeft, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
-                totalHits += Trace(rayTrace, SoundRight, targetOrigin, player.PlayerPawn.Value) ? 1 : 0;
-
-                //VERYHIGH
-                totalHits += Trace(rayTrace, playerOrigin, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
-                totalHits += Trace(rayTrace, playerOrigin, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
-
-                //ULTRA
-                totalHits += Trace(rayTrace, SoundLeft, ListenerRight, player.PlayerPawn.Value) ? 1 : 0;
-                totalHits += Trace(rayTrace, SoundRight, ListenerLeft, player.PlayerPawn.Value) ? 1 : 0;
-
-                fraction = (float)totalHits / 1f;
-                //float fraction = (float)totalHits / 1f;
-
-                //var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
-                //var targetSteamId = (ulong)(target.AuthorizedSteamID?.SteamId64 ?? (ulong)target.UserId!);
-
-                // TODO: store occlusion in a 2D matrix (from -> to)
-                // TODO: memoize per player-pair to avoid duplicate traces
-
-                occlusionMemo[key] = fraction;
-
-                pdata.OcclusionFraction[target.PlayerName] = fraction;
-
-                //PlayerData[playerSteamId].OcclusionFraction[target.PlayerName] = fraction;
+                continue;
             }
+
+            if (!PlayerData.TryGetValue(steamId, out var playerData))
+            {
+                continue;
+            }
+
+            playerData.OcclusionFraction.Clear();
+
+            var origin = new Vector(playerData.OriginX / 10000f, playerData.OriginY / 10000f, playerData.OriginZ / 10000f);
+
+            _occlusionSnapshot[steamId] = new OcclusionSnapshot(origin, playerPawn);
+            _occlusionCycleSteamIds.Add(steamId);
         }
 
-        if (Server.TickCount % 64 == 0)
+        for (int i = 0; i < _occlusionCycleSteamIds.Count; i++)
         {
-            foreach (var (steamId, data) in PlayerData)
+            for (int j = i + 1; j < _occlusionCycleSteamIds.Count; j++)
             {
-                if (data.Name == "boink")
-                {
-                    Console.WriteLine($"Player: {data.Name} ({steamId})");
-
-                    foreach (var (targetName, fraction) in data.OcclusionFraction)
-                    {
-                        Console.WriteLine($"  -> {targetName}: {fraction}");
-                    }
-                }
+                _occlusionPairs.Add((_occlusionCycleSteamIds[i], _occlusionCycleSteamIds[j]));
             }
         }
+
+        _cycleTraceQuality = OcclusionTraceQuality;
+        _occlusionPairIndex = 0;
+        _occlusionTicksRemaining = OcclusionWindowTicks;
+        _occlusionCycleInProgress = true;
+
+        if (_occlusionPairs.Count == 0)
+        {
+            CompleteOcclusionCycle();
+        }
+    }
+
+    private void ProcessOcclusionCycleTick()
+    {
+        if (!_occlusionCycleInProgress)
+        {
+            return;
+        }
+
+        if (_occlusionPairIndex >= _occlusionPairs.Count)
+        {
+            CompleteOcclusionCycle();
+            return;
+        }
+
+        var rayTrace = RayTraceInterface.Get();
+        if (rayTrace == null)
+        {
+            CompleteOcclusionCycle();
+            return;
+        }
+
+        int remainingPairs = _occlusionPairs.Count - _occlusionPairIndex;
+        int remainingTicks = Math.Max(_occlusionTicksRemaining, 1);
+        int pairsThisTick = (int)Math.Ceiling((double)remainingPairs / remainingTicks);
+
+        for (int i = 0; i < pairsThisTick; i++)
+        {
+            if (_occlusionPairIndex >= _occlusionPairs.Count)
+            {
+                break;
+            }
+
+            var pair = _occlusionPairs[_occlusionPairIndex];
+            _occlusionPairIndex++;
+            ProcessOcclusionPair(rayTrace, pair.from, pair.to);
+        }
+
+        _occlusionTicksRemaining = Math.Max(_occlusionTicksRemaining - 1, 0);
+
+        if (_occlusionPairIndex >= _occlusionPairs.Count)
+        {
+            CompleteOcclusionCycle();
+        }
+    }
+
+    private void ProcessOcclusionPair(CRayTraceInterface rayTrace, ulong fromSteamId, ulong toSteamId)
+    {
+        if (!_occlusionSnapshot.TryGetValue(fromSteamId, out var fromSnapshot) || !_occlusionSnapshot.TryGetValue(toSteamId, out var toSnapshot))
+        {
+            return;
+        }
+
+        var fraction = CalculateOcclusionFraction(rayTrace, fromSnapshot, toSnapshot, _cycleTraceQuality);
+        SetDirectionalOcclusion(fromSteamId, toSteamId, fraction);
+        SetDirectionalOcclusion(toSteamId, fromSteamId, fraction);
+    }
+
+    private float CalculateOcclusionFraction(CRayTraceInterface rayTrace, OcclusionSnapshot source, OcclusionSnapshot target, int quality)
+    {
+        int widening = 31;
+
+        var sourceOrigin = source.Origin;
+        var targetOrigin = target.Origin;
+        var soundLeft = CalculatePoint(sourceOrigin, targetOrigin, widening, true);
+        var soundRight = CalculatePoint(sourceOrigin, targetOrigin, widening, false);
+        var listenerLeft = CalculatePoint(targetOrigin, sourceOrigin, widening, true);
+        var listenerRight = CalculatePoint(targetOrigin, sourceOrigin, widening, false);
+
+        int totalHits = 0;
+        int tracesExecuted = 0;
+
+        tracesExecuted++;
+        totalHits += Trace(rayTrace, sourceOrigin, targetOrigin, source.IgnoreEntity) ? 1 : 0;
+
+        if (quality >= 2)
+        {
+            tracesExecuted += 2;
+            totalHits += Trace(rayTrace, soundLeft, listenerLeft, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(rayTrace, soundRight, listenerRight, source.IgnoreEntity) ? 1 : 0;
+        }
+
+        if (quality >= 3)
+        {
+            tracesExecuted += 2;
+            totalHits += Trace(rayTrace, soundLeft, targetOrigin, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(rayTrace, soundRight, targetOrigin, source.IgnoreEntity) ? 1 : 0;
+        }
+
+        if (quality >= 4)
+        {
+            tracesExecuted += 2;
+            totalHits += Trace(rayTrace, sourceOrigin, listenerLeft, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(rayTrace, sourceOrigin, listenerRight, source.IgnoreEntity) ? 1 : 0;
+        }
+
+        if (quality >= 5)
+        {
+            tracesExecuted += 2;
+            totalHits += Trace(rayTrace, soundLeft, listenerRight, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(rayTrace, soundRight, listenerLeft, source.IgnoreEntity) ? 1 : 0;
+        }
+
+        if (tracesExecuted <= 0)
+        {
+            return 0f;
+        }
+
+        return (float)totalHits / tracesExecuted;
+    }
+
+    private void SetDirectionalOcclusion(ulong sourceSteamId, ulong targetSteamId, float fraction)
+    {
+        if (!PlayerData.TryGetValue(sourceSteamId, out var sourceData))
+        {
+            return;
+        }
+
+        float clampedFraction = Math.Clamp(fraction, 0f, 1f);
+        sourceData.OcclusionFraction[targetSteamId.ToString()] = clampedFraction;
+    }
+
+    private void CompleteOcclusionCycle()
+    {
+        var playerList = new List<PlayerData>(_occlusionCycleSteamIds.Count);
+        foreach (var steamId in _occlusionCycleSteamIds)
+        {
+            if (PlayerData.TryGetValue(steamId, out var data))
+            {
+                playerList.Add(data);
+            }
+        }
+
+        _pendingPlayerPositionsPayload = MessagePackSerializer.Serialize(playerList);
+        ResetOcclusionCycleState();
+    }
+
+    private void ResetOcclusionCycleState()
+    {
+        _occlusionCycleInProgress = false;
+        _occlusionTicksRemaining = 0;
+        _occlusionPairIndex = 0;
+        _occlusionPairs.Clear();
+        _occlusionSnapshot.Clear();
+        _occlusionCycleSteamIds.Clear();
+    }
+
+    private ulong GetPlayerDataSteamId(CCSPlayerController player)
+    {
+        var steamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
+        if (steamId != 0)
+        {
+            return steamId;
+        }
+
+        if (!DEBUG_FAKE_PLAYERS || !player.IsBot)
+        {
+            return 0;
+        }
+
+        int index = fakeBots.IndexOf(player.PlayerName);
+        if (index < 0)
+        {
+            return 0;
+        }
+
+        string candidate;
+        if (index + 1 < 10)
+        {
+            candidate = $"1000000000000000{index + 1}";
+        }
+        else
+        {
+            candidate = $"100000000000000{index + 1}";
+        }
+        ulong.TryParse(candidate, out var fakeSteamId);
+        return fakeSteamId;
     }
 
     public bool Trace(CRayTraceInterface rayTrace, Vector from, Vector to, CBaseEntity ignore)

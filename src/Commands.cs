@@ -175,4 +175,24 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         SaveAllPlayersPositions();
     }
+
+    [ConsoleCommand("css_setquality")]
+    [RequiresPermissions("#css/admin")]
+    public void Command_SetQuality(CCSPlayerController? caller, CommandInfo info)
+    {
+        if (info.ArgCount < 2)
+        {
+            info.ReplyToCommand($"Usage: css_setquality <{MinOcclusionTraceQuality}-{MaxOcclusionTraceQuality}>. Current quality: {OcclusionTraceQuality} ({GetTraceCountForQuality(OcclusionTraceQuality)} traces)");
+            return;
+        }
+
+        var value = info.GetArg(1);
+        if (!int.TryParse(value, out int quality) || !TrySetOcclusionTraceQuality(quality))
+        {
+            info.ReplyToCommand($"Invalid quality '{value}'. Expected an integer between {MinOcclusionTraceQuality} and {MaxOcclusionTraceQuality}.");
+            return;
+        }
+
+        info.ReplyToCommand($"Occlusion quality set to {OcclusionTraceQuality} ({GetTraceCountForQuality(OcclusionTraceQuality)} traces).");
+    }
 }
