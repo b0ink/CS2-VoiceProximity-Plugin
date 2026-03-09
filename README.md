@@ -76,3 +76,4 @@ Edit the plugin's config found in `addons/counterstrikesharp/configs/plugins/Pro
 
 - Oceania: `https://au.cs2voiceproximity.chat`
 - Europe: `https://eu.cs2voiceproximity.chat`
+- US (Dallas): `https://us-central.cs2voiceproximity.chat`
