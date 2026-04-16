@@ -395,12 +395,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         });
     }
 
-    public TraceOptions traceOptions = new TraceOptions(
-        interactsAs: 0,
-        interactsWith: InteractionLayers.WorldGeometry | InteractionLayers.Solid | InteractionLayers.Window,
-        interactsExclude: InteractionLayers.Player | InteractionLayers.NPC,
-        drawBeam: false
-    );
+    public TraceOptions traceOptions = new TraceOptions(interactsWith: InteractionLayers.WorldGeometry | InteractionLayers.Solid | InteractionLayers.Window, interactsExclude: InteractionLayers.Player | InteractionLayers.NPC, drawBeam: false);
 
     public bool TrySetOcclusionTraceQuality(int quality)
     {
