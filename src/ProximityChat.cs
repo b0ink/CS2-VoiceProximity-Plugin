@@ -141,7 +141,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 }
 
                 // Prevent players from being removed during map changes
-                if (player.Connected == PlayerConnectedState.PlayerDisconnected)
+                if (player.Connected == PlayerConnectedState.Disconnected)
                 {
                     var authorisedSteamID = player.AuthorizedSteamID?.SteamId64;
                     if (authorisedSteamID != null && PlayerData.ContainsKey((ulong)authorisedSteamID))
