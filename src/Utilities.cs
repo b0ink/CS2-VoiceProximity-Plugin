@@ -114,9 +114,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             return false;
         if (playerController.IsHLTV)
             return false;
-        if (playerController.Connected != PlayerConnectedState.NeverConnected)
-            return false;
-        if (playerController.Connected != PlayerConnectedState.Disconnected)
+        if (playerController.Connected != PlayerConnectedState.Connected)
             return false;
         if (playerController.PlayerPawn?.Value == null)
             return false;
