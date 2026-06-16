@@ -53,7 +53,7 @@ jobs:
           cp ${{ env.OUTPUT_PATH }}/MessagePack.Annotations.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIOClient.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIOClient.Common.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIOClient.Serializer.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/RayTraceApi.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/RayTraceApi.pdb ${{ env.RELEASE_PATH }}
 
