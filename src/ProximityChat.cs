@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Net;
 using System.Reflection;
 using System.Text;
@@ -122,7 +123,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     var origin = door.AbsOrigin.Clone();
                     Task.Run(() =>
                     {
-                        socket?.EmitAsync("door-rotation", "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", currentRotation);
+                        socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", currentRotation });
                     });
                 }
             }
@@ -220,28 +221,28 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     private async Task InitSocketIO()
     {
-        var query = new List<KeyValuePair<string, string>>();
+        var query = new NameValueCollection();
         if (Config.ApiKey != null)
         {
-            query.Add(new KeyValuePair<string, string>("api-key", Config.ApiKey));
+            query["api-key"] = Config.ApiKey;
         }
         if (hostAddress != null)
         {
-            query.Add(new KeyValuePair<string, string>("server-address", hostAddress));
+            query["server-address"] = hostAddress;
         }
         if (hostPort != null)
         {
-            query.Add(new KeyValuePair<string, string>("server-port", hostPort));
+            query["server-port"] = hostPort;
         }
         if (PluginVersion != null)
         {
-            query.Add(new KeyValuePair<string, string>("plugin-version", PluginVersion));
+            query["plugin-version"] = PluginVersion;
         }
 
         if (socket == null || !socket.Connected)
         {
             socket = new SocketIOClient.SocketIO(
-                Config.SocketURL,
+                new Uri(Config.SocketURL ?? throw new InvalidOperationException("SocketURL is not configured.")),
                 new SocketIOOptions
                 {
                     //ReconnectionAttempts = 3,
@@ -276,7 +277,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 {
                     try
                     {
-                        var bytes = data.GetValue<byte[]>();
+                        var bytes = data.GetValue<byte[]>(0);
                         if (bytes != null)
                         {
                             var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
@@ -304,14 +305,21 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     {
                         Logger.LogError(ex.Message);
                     }
+
+                    return Task.CompletedTask;
                 }
             );
 
             socket.On(
                 "server-restart-warning",
-                (SocketIOResponse data) =>
+                (data) =>
                 {
                     var payload = data.GetValue<ServerRestartWarning>(0);
+                    if (payload == null)
+                    {
+                        return Task.CompletedTask;
+                    }
+
                     Server.NextFrame(() =>
                     {
                         Logger.LogWarning($"Socket server will restart in {payload.minutes * 60} seconds. Users will reconnect automatically.");
@@ -319,6 +327,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                             $" {ChatColors.Green}Proximity Chat {ChatColors.Default}| {ChatColors.Red}API server will restart in {ChatColors.Default}{payload.minutes * 60} {ChatColors.Red}seconds. Users will reconnect automatically."
                         );
                     });
+
+                    return Task.CompletedTask;
                 }
             );
 
@@ -353,11 +363,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             // Custom errors from the API
             socket.On(
                 "exception",
-                (SocketIOResponse error) =>
+                (error) =>
                 {
                     var payload = error.GetValue<ExceptionPayload>(0);
                     Log(payload?.message ?? "Unknown socket exception occurred.", ConsoleColor.Red);
                     tryReconnectSocket = false;
+
+                    return Task.CompletedTask;
                 }
             );
 
@@ -374,7 +386,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         Console.WriteLine($"Notifying server of current map: {CurrentMap}");
         Task.Run(async () =>
         {
-            await socket.EmitAsync("current-map", "proximity-chat", CurrentMap);
+            await socket.EmitAsync("current-map", new object[] { "proximity-chat", CurrentMap });
         });
     }
 
@@ -390,7 +402,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             var payload = MessagePackSerializer.Serialize(Config);
             Task.Run(async () =>
             {
-                await socket.EmitAsync("server-config", "proximity-chat", payload);
+                await socket.EmitAsync("server-config", new object[] { "proximity-chat", payload });
             });
         });
     }
@@ -481,7 +493,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         var payload = _pendingPlayerPositionsPayload;
         _pendingPlayerPositionsPayload = null;
         _lastPlayerPositionsEmitAt = now;
-        _ = socket.EmitAsync("player-positions", "proximity-chat", payload);
+        _ = socket.EmitAsync("player-positions", new object[] { "proximity-chat", payload });
     }
 
     private void BeginOcclusionCycle()
@@ -995,7 +1007,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                         DoorRotations[doorKey] = 999;
                         Task.Run(() =>
                         {
-                            socket?.EmitAsync("door-rotation", "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999);
+                            socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
                         });
                     }
                 );
