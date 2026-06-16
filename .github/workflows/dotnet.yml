@@ -52,9 +52,8 @@ jobs:
           cp ${{ env.OUTPUT_PATH }}/MessagePack.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/MessagePack.Annotations.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIOClient.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/SocketIO.Core.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.Core.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.SystemTextJson.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIOClient.Common.dll ${{ env.RELEASE_PATH }}
+          cp ${{ env.OUTPUT_PATH }}/SocketIO.Serializer.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/RayTraceApi.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/RayTraceApi.pdb ${{ env.RELEASE_PATH }}
 
