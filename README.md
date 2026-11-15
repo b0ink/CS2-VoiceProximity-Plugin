@@ -9,7 +9,7 @@ This plugin sends player positions and camera angles to the API server, which th
 ## Requirements
 
 - Install [CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp) 1.0.380 or newer with its .NET 10 runtime.
-- Sound occlusion uses CounterStrikeSharp's built-in hull tracing. The separate Ray-Trace Metamod extension and `RayTraceImpl` shared plugin are no longer required.
+- Sound occlusion uses CounterStrikeSharp's built-in hull tracing.
 
 ## Links
 
