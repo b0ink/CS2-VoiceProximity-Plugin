@@ -8,7 +8,8 @@ This plugin sends player positions and camera angles to the API server, which th
 
 ## Requirements
 
-- Install the latest [Ray-Trace release](https://github.com/FUNPLAY-pro-CS2/Ray-Trace) on your server, including both the Metamod extension and the CounterStrikeSharp shared plugin (`RayTraceImpl`).
+- Install [CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp) 1.0.380 or newer with its .NET 10 runtime.
+- Sound occlusion uses CounterStrikeSharp's built-in hull tracing.
 
 ## Links
 

@@ -22,8 +22,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          submodules: recursive
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -54,8 +52,6 @@ jobs:
           cp ${{ env.OUTPUT_PATH }}/SocketIOClient.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIOClient.Common.dll ${{ env.RELEASE_PATH }}
           cp ${{ env.OUTPUT_PATH }}/SocketIOClient.Serializer.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/RayTraceApi.dll ${{ env.RELEASE_PATH }}
-          cp ${{ env.OUTPUT_PATH }}/RayTraceApi.pdb ${{ env.RELEASE_PATH }}
 
       - name: Zip
         uses: thedoctor0/zip-release@0.7.5

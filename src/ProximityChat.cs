@@ -4,15 +4,15 @@ using System.Reflection;
 using System.Text;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
-using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Extensions;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
 using Microsoft.Extensions.Logging;
-using RayTraceAPI;
 using SocketIOClient;
+using CounterStrikeTrace = CounterStrikeSharp.API.Modules.Utils.Trace;
 
 namespace ProximityChat;
 
@@ -27,13 +27,12 @@ public class ServerRestartWarning
     public float minutes { get; set; }
 }
 
+[MinimumApiVersion(380)]
 public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 {
     public override string ModuleName => "Proximity Chat API";
     public override string ModuleAuthor => "b0ink";
     public override string ModuleVersion => PluginVersion ?? "n/a";
-
-    internal static PluginCapability<CRayTraceInterface> RayTraceInterface { get; } = new("raytrace:craytraceinterface");
 
     public Config Config { get; set; } = new();
 
@@ -63,6 +62,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private const int OcclusionWindowTicks = 6;
     private const int MinOcclusionTraceQuality = 1;
     private const int MaxOcclusionTraceQuality = 5;
+    private static readonly TraceOptions OcclusionTraceOptions = new() { InteractsWith = Contents.WorldGeometry | Contents.Solid | Contents.Window, InteractsExclude = Contents.Player | Contents.Npc };
     public int OcclusionTraceQuality { get; private set; } = 5;
 
     private byte[]? _pendingPlayerPositionsPayload;
@@ -192,7 +192,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public void InitServer()
     {
-        var ipInt = ConVar.Find("hostip")?.GetPrimitiveValue<int>();
+        var ipInt = ConVar<int>.Find("hostip")?.Value;
         if (ipInt != null)
         {
             byte[] bytes = BitConverter.GetBytes((int)ipInt);
@@ -201,7 +201,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             hostAddress = ipString != null ? ipString : null;
         }
 
-        var port = ConVar.Find("hostport")?.GetPrimitiveValue<int>();
+        var port = ConVar<int>.Find("hostport")?.Value;
         hostPort = port != null ? port.ToString() : null;
 
         Server.NextFrame(() =>
@@ -260,77 +260,66 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     ResetOcclusionCycleState();
                     // Deprecated flow (removed): background Task loop emitting player-positions on a fixed delay.
 
-                    AddTimer(
-                        3,
-                        () =>
-                        {
-                            NotifyMapChange();
-                            NotifyServerConfig();
-                        }
-                    );
+                    AddTimer(3, () =>
+                    {
+                        NotifyMapChange();
+                        NotifyServerConfig();
+                    });
                 });
             };
 
-            socket.On(
-                "server-config",
-                (data) =>
+            socket.On("server-config", (data) =>
+            {
+                try
                 {
-                    try
+                    var bytes = data.GetValue<byte[]>(0);
+                    if (bytes != null)
                     {
-                        var bytes = data.GetValue<byte[]>(0);
-                        if (bytes != null)
+                        var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
+                        Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
+                        Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
+                        Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
+                        Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
+                        Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
+                        Config.OcclusionNear = updatedConfig.OcclusionNear;
+                        Config.OcclusionFar = updatedConfig.OcclusionFar;
+                        Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
+                        Config.OcclusionFalloffFactor = updatedConfig.OcclusionFalloffFactor;
+                        Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
+                        Config.DeadVoiceFilterFrequency = updatedConfig.DeadVoiceFilterFrequency;
+                        Config.SpectatorsCanTalk = updatedConfig.SpectatorsCanTalk;
+
+                        Server.NextFrame(() =>
                         {
-                            var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
-                            Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
-                            Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
-                            Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
-                            Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
-                            Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
-                            Config.OcclusionNear = updatedConfig.OcclusionNear;
-                            Config.OcclusionFar = updatedConfig.OcclusionFar;
-                            Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
-                            Config.OcclusionFalloffFactor = updatedConfig.OcclusionFalloffFactor;
-                            Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
-                            Config.DeadVoiceFilterFrequency = updatedConfig.DeadVoiceFilterFrequency;
-                            Config.SpectatorsCanTalk = updatedConfig.SpectatorsCanTalk;
-
-                            Server.NextFrame(() =>
-                            {
-                                Config.Update();
-                            });
-                            Console.WriteLine($"Config has been updated by client");
-                        }
+                            Config.Update();
+                        });
+                        Console.WriteLine($"Config has been updated by client");
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex.Message);
-                    }
-
-                    return Task.CompletedTask;
                 }
-            );
-
-            socket.On(
-                "server-restart-warning",
-                (data) =>
+                catch (Exception ex)
                 {
-                    var payload = data.GetValue<ServerRestartWarning>(0);
-                    if (payload == null)
-                    {
-                        return Task.CompletedTask;
-                    }
+                    Logger.LogError(ex.Message);
+                }
 
-                    Server.NextFrame(() =>
-                    {
-                        Logger.LogWarning($"Socket server will restart in {payload.minutes * 60} seconds. Users will reconnect automatically.");
-                        Server.PrintToChatAll(
-                            $" {ChatColors.Green}Proximity Chat {ChatColors.Default}| {ChatColors.Red}API server will restart in {ChatColors.Default}{payload.minutes * 60} {ChatColors.Red}seconds. Users will reconnect automatically."
-                        );
-                    });
+                return Task.CompletedTask;
+            });
 
+            socket.On("server-restart-warning", (data) =>
+            {
+                var payload = data.GetValue<ServerRestartWarning>(0);
+                if (payload == null)
+                {
                     return Task.CompletedTask;
                 }
-            );
+
+                Server.NextFrame(() =>
+                {
+                    Logger.LogWarning($"Socket server will restart in {payload.minutes * 60} seconds. Users will reconnect automatically.");
+                    Server.PrintToChatAll($" {ChatColors.Green}Proximity Chat {ChatColors.Default}| {ChatColors.Red}API server will restart in {ChatColors.Default}{payload.minutes * 60} {ChatColors.Red}seconds. Users will reconnect automatically.");
+                });
+
+                return Task.CompletedTask;
+            });
 
             socket.OnDisconnected += (sender, e) =>
             {
@@ -349,29 +338,23 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 {
                     if (tryReconnectSocket)
                     {
-                        AddTimer(
-                            1,
-                            () =>
-                            {
-                                InitServer();
-                            }
-                        );
+                        AddTimer(1, () =>
+                        {
+                            InitServer();
+                        });
                     }
                 });
             };
 
             // Custom errors from the API
-            socket.On(
-                "exception",
-                (error) =>
-                {
-                    var payload = error.GetValue<ExceptionPayload>(0);
-                    Log(payload?.message ?? "Unknown socket exception occurred.", ConsoleColor.Red);
-                    tryReconnectSocket = false;
+            socket.On("exception", (error) =>
+            {
+                var payload = error.GetValue<ExceptionPayload>(0);
+                Log(payload?.message ?? "Unknown socket exception occurred.", ConsoleColor.Red);
+                tryReconnectSocket = false;
 
-                    return Task.CompletedTask;
-                }
-            );
+                return Task.CompletedTask;
+            });
 
             await socket.ConnectAsync();
         }
@@ -406,8 +389,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             });
         });
     }
-
-    public TraceOptions traceOptions = new TraceOptions(interactsWith: InteractionLayers.WorldGeometry | InteractionLayers.Solid | InteractionLayers.Window, interactsExclude: InteractionLayers.Player | InteractionLayers.NPC, drawBeam: false);
 
     public bool TrySetOcclusionTraceQuality(int quality)
     {
@@ -574,13 +555,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             return;
         }
 
-        var rayTrace = RayTraceInterface.Get();
-        if (rayTrace == null)
-        {
-            CompleteOcclusionCycle();
-            return;
-        }
-
         int remainingPairs = _occlusionPairs.Count - _occlusionPairIndex;
         int remainingTicks = Math.Max(_occlusionTicksRemaining, 1);
         int pairsThisTick = (int)Math.Ceiling((double)remainingPairs / remainingTicks);
@@ -594,7 +568,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
             var pair = _occlusionPairs[_occlusionPairIndex];
             _occlusionPairIndex++;
-            ProcessOcclusionPair(rayTrace, pair.from, pair.to);
+            ProcessOcclusionPair(pair.from, pair.to);
         }
 
         _occlusionTicksRemaining = Math.Max(_occlusionTicksRemaining - 1, 0);
@@ -605,19 +579,19 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
     }
 
-    private void ProcessOcclusionPair(CRayTraceInterface rayTrace, ulong fromSteamId, ulong toSteamId)
+    private void ProcessOcclusionPair(ulong fromSteamId, ulong toSteamId)
     {
         if (!_occlusionSnapshot.TryGetValue(fromSteamId, out var fromSnapshot) || !_occlusionSnapshot.TryGetValue(toSteamId, out var toSnapshot))
         {
             return;
         }
 
-        var fraction = CalculateOcclusionFraction(rayTrace, fromSnapshot, toSnapshot, _cycleTraceQuality);
+        var fraction = CalculateOcclusionFraction(fromSnapshot, toSnapshot, _cycleTraceQuality);
         SetDirectionalOcclusion(fromSteamId, toSteamId, fraction);
         SetDirectionalOcclusion(toSteamId, fromSteamId, fraction);
     }
 
-    private float CalculateOcclusionFraction(CRayTraceInterface rayTrace, OcclusionSnapshot source, OcclusionSnapshot target, int quality)
+    private float CalculateOcclusionFraction(OcclusionSnapshot source, OcclusionSnapshot target, int quality)
     {
         int widening = 31;
 
@@ -632,34 +606,34 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         int tracesExecuted = 0;
 
         tracesExecuted++;
-        totalHits += Trace(rayTrace, sourceOrigin, targetOrigin, source.IgnoreEntity) ? 1 : 0;
+        totalHits += Trace(sourceOrigin, targetOrigin, source.IgnoreEntity) ? 1 : 0;
 
         if (quality >= 2)
         {
             tracesExecuted += 2;
-            totalHits += Trace(rayTrace, soundLeft, listenerLeft, source.IgnoreEntity) ? 1 : 0;
-            totalHits += Trace(rayTrace, soundRight, listenerRight, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(soundLeft, listenerLeft, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(soundRight, listenerRight, source.IgnoreEntity) ? 1 : 0;
         }
 
         if (quality >= 3)
         {
             tracesExecuted += 2;
-            totalHits += Trace(rayTrace, soundLeft, targetOrigin, source.IgnoreEntity) ? 1 : 0;
-            totalHits += Trace(rayTrace, soundRight, targetOrigin, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(soundLeft, targetOrigin, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(soundRight, targetOrigin, source.IgnoreEntity) ? 1 : 0;
         }
 
         if (quality >= 4)
         {
             tracesExecuted += 2;
-            totalHits += Trace(rayTrace, sourceOrigin, listenerLeft, source.IgnoreEntity) ? 1 : 0;
-            totalHits += Trace(rayTrace, sourceOrigin, listenerRight, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(sourceOrigin, listenerLeft, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(sourceOrigin, listenerRight, source.IgnoreEntity) ? 1 : 0;
         }
 
         if (quality >= 5)
         {
             tracesExecuted += 2;
-            totalHits += Trace(rayTrace, soundLeft, listenerRight, source.IgnoreEntity) ? 1 : 0;
-            totalHits += Trace(rayTrace, soundRight, listenerLeft, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(soundLeft, listenerRight, source.IgnoreEntity) ? 1 : 0;
+            totalHits += Trace(soundRight, listenerLeft, source.IgnoreEntity) ? 1 : 0;
         }
 
         if (tracesExecuted <= 0)
@@ -738,29 +712,15 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         return fakeSteamId;
     }
 
-    public bool Trace(CRayTraceInterface rayTrace, Vector from, Vector to, CBaseEntity ignore)
+    public bool Trace(Vector from, Vector to, CBaseEntity ignore)
     {
-        // Ray trace
         float hullRadius = 1.0f;
 
-        // Small cube hull (1x1x1 by default)
         Vector mins = new Vector(-hullRadius, -hullRadius, -hullRadius);
         Vector maxs = new Vector(hullRadius, hullRadius, hullRadius);
 
-        var success = rayTrace.TraceHullShape(
-            from,
-            to,
-            mins,
-            maxs,
-            ignore, // ignore speaker
-            traceOptions,
-            out TraceResult result
-        );
-
-        if (!success)
-            return false;
-
-        return result.DidHit; // or refine if needed
+        var result = CounterStrikeTrace.TraceHullShape(from, to, mins, maxs, ignore, OcclusionTraceOptions);
+        return result.DidHit();
     }
 
     public Vector CalculatePoint(Vector a, Vector b, float m, bool positive)
@@ -1000,17 +960,14 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 var origin = door.AbsOrigin.Clone();
                 var doorKey = GetDoorKey(origin);
 
-                AddTimer(
-                    0.1f,
-                    () =>
+                AddTimer(0.1f, () =>
+                {
+                    DoorRotations[doorKey] = 999;
+                    Task.Run(() =>
                     {
-                        DoorRotations[doorKey] = 999;
-                        Task.Run(() =>
-                        {
-                            socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
-                        });
-                    }
-                );
+                        socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
+                    });
+                });
             }
         }
         return HookResult.Continue;
