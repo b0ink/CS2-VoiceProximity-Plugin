@@ -46,45 +46,36 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 displayOption = $"{name}: {ChatColors.Magenta}{prop.GetValue(Config)}";
             }
 
-            menu.AddMenuOption(
-                displayOption,
-                (player, selection) =>
-                {
-                    var subMenu = new ChatMenu($"Change {name}");
+            menu.AddMenuOption(displayOption, (player, selection) =>
+            {
+                var subMenu = new ChatMenu($"Change {name}");
 
-                    if (prop.PropertyType == typeof(bool))
+                if (prop.PropertyType == typeof(bool))
+                {
+                    subMenu.AddMenuOption("True", (player, selection) =>
                     {
-                        subMenu.AddMenuOption(
-                            "True",
-                            (player, selection) =>
-                            {
-                                prop.SetValue(Config, true);
-                                Config.Update();
-                                NotifyServerConfig();
-                                caller.PrintToChat($"Set {name} to {ChatColors.Green}true");
-                            }
-                        );
-                        subMenu.AddMenuOption(
-                            "false",
-                            (player, selection) =>
-                            {
-                                prop.SetValue(Config, false);
-                                Config.Update();
-                                NotifyServerConfig();
-                                caller.PrintToChat($"Set {name} to {ChatColors.Red}false");
-                            }
-                        );
-                        MenuManager.OpenChatMenu(caller, subMenu);
-                    }
-                    else if (prop.PropertyType == typeof(float))
+                        prop.SetValue(Config, true);
+                        Config.Update();
+                        NotifyServerConfig();
+                        caller.PrintToChat($"Set {name} to {ChatColors.Green}true");
+                    });
+                    subMenu.AddMenuOption("false", (player, selection) =>
                     {
-                        var value = prop.GetValue(Config);
-                        configPropertyEditing = prop;
-                        configEditedBySteamId = caller.AuthorizedSteamID?.SteamId64 ?? 0;
-                        caller.PrintToChat($"Type in chat the new value of {ChatColors.Green}{name}");
-                    }
+                        prop.SetValue(Config, false);
+                        Config.Update();
+                        NotifyServerConfig();
+                        caller.PrintToChat($"Set {name} to {ChatColors.Red}false");
+                    });
+                    MenuManager.OpenChatMenu(caller, subMenu);
                 }
-            );
+                else if (prop.PropertyType == typeof(float))
+                {
+                    var value = prop.GetValue(Config);
+                    configPropertyEditing = prop;
+                    configEditedBySteamId = caller.AuthorizedSteamID?.SteamId64 ?? 0;
+                    caller.PrintToChat($"Type in chat the new value of {ChatColors.Green}{name}");
+                }
+            });
         }
         MenuManager.OpenChatMenu(caller, menu);
     }
