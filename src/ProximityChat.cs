@@ -58,15 +58,15 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public List<string?> fakeBots = new();
 
-    private const float PlayerPositionsEmitIntervalSeconds = 0.1f;
+    private const float OcclusionUpdateIntervalSeconds = 0.1f;
     private const int OcclusionWindowTicks = 6;
     private const int MinOcclusionTraceQuality = 1;
     private const int MaxOcclusionTraceQuality = 5;
     private static readonly TraceOptions OcclusionTraceOptions = new() { InteractsWith = Contents.WorldGeometry | Contents.Solid | Contents.Window, InteractsExclude = Contents.Player | Contents.Npc };
     public int OcclusionTraceQuality { get; private set; } = 5;
 
-    private byte[]? _pendingPlayerPositionsPayload;
-    private float _lastPlayerPositionsEmitAt = 0f;
+    private Task _playerPositionsEmitTask = Task.CompletedTask;
+    private float _lastOcclusionCycleStartedAt = float.NegativeInfinity;
 
     private bool _occlusionCycleInProgress = false;
     private int _occlusionTicksRemaining = 0;
@@ -75,6 +75,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private readonly List<(ulong from, ulong to)> _occlusionPairs = new();
     private readonly Dictionary<ulong, OcclusionSnapshot> _occlusionSnapshot = new();
     private readonly List<ulong> _occlusionCycleSteamIds = new();
+    private readonly Dictionary<ulong, Dictionary<string, float>> _pendingOcclusionFractions = new();
 
     private sealed class OcclusionSnapshot
     {
@@ -129,7 +130,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
 
             var now = Server.CurrentTime;
-            // Deprecated flow (removed): `_nextSaveAt` debounce + full SaveAllPlayersPositions() every 100ms.
             TickPlayerPositionPipeline(now);
 
             for (int i = 0; i < Server.MaxPlayers; i++)
@@ -166,6 +166,12 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
+            ResetOcclusionCycleState();
+            _lastOcclusionCycleStartedAt = float.NegativeInfinity;
+            foreach (var playerData in PlayerData.Values)
+            {
+                playerData.OcclusionFraction.Clear();
+            }
             CurrentMap = mapName;
             if (_cts == null && _socketTask == null && (socket == null || !socket.Connected))
             {
@@ -181,6 +187,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         RegisterListener<Listeners.OnMapEnd>(() =>
         {
+            ResetOcclusionCycleState();
             // Triggers all players to have mono audio until they join a team again
             foreach (var player in PlayerData)
             {
@@ -255,10 +262,9 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 Server.NextFrame(() =>
                 {
                     Logger.LogInformation("Socket connected successfully.");
-                    _lastPlayerPositionsEmitAt = Server.CurrentTime - PlayerPositionsEmitIntervalSeconds;
-                    _pendingPlayerPositionsPayload = null;
+                    _playerPositionsEmitTask = Task.CompletedTask;
+                    _lastOcclusionCycleStartedAt = float.NegativeInfinity;
                     ResetOcclusionCycleState();
-                    // Deprecated flow (removed): background Task loop emitting player-positions on a fixed delay.
 
                     AddTimer(3, () =>
                     {
@@ -324,8 +330,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             socket.OnDisconnected += (sender, e) =>
             {
                 Logger.LogError("Socket disconnected. Please restart the server if it does not reconnect automatically.");
-                _pendingPlayerPositionsPayload = null;
-                ResetOcclusionCycleState();
                 if (_cts != null)
                 {
                     _cts.Cancel();
@@ -336,6 +340,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 }
                 Server.NextFrame(() =>
                 {
+                    ResetOcclusionCycleState();
+                    _lastOcclusionCycleStartedAt = float.NegativeInfinity;
                     if (tryReconnectSocket)
                     {
                         AddTimer(1, () =>
@@ -430,7 +436,10 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public void SaveAllPlayersPositions()
     {
-        BeginOcclusionCycle();
+        var players = Utilities.GetPlayers().Where(IsValid).ToList();
+        CapturePlayerPositions(players);
+        _lastOcclusionCycleStartedAt = Server.CurrentTime;
+        BeginOcclusionCycle(players);
         while (_occlusionCycleInProgress)
         {
             ProcessOcclusionCycleTick();
@@ -439,50 +448,56 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     private void TickPlayerPositionPipeline(float now)
     {
-        if (now < _lastPlayerPositionsEmitAt)
+        if (now < _lastOcclusionCycleStartedAt)
         {
-            _lastPlayerPositionsEmitAt = now - PlayerPositionsEmitIntervalSeconds;
+            ResetOcclusionCycleState();
+            _lastOcclusionCycleStartedAt = float.NegativeInfinity;
         }
 
         if (socket == null || !socket.Connected)
         {
-            _pendingPlayerPositionsPayload = null;
             ResetOcclusionCycleState();
             return;
         }
 
-        if (!_occlusionCycleInProgress && _pendingPlayerPositionsPayload == null)
+        var players = Utilities.GetPlayers().Where(IsValid).ToList();
+        var playerList = CapturePlayerPositions(players);
+
+        // Send current poses before raycasting, using the last completed occlusion results.
+        // If the transport is busy, sample again next tick instead of queuing stale snapshots.
+        if (_playerPositionsEmitTask.IsCompleted)
         {
-            BeginOcclusionCycle();
+            var payload = MessagePackSerializer.Serialize(playerList);
+            _playerPositionsEmitTask = EmitPlayerPositionsAsync(socket, payload);
+        }
+
+        if (!_occlusionCycleInProgress && now - _lastOcclusionCycleStartedAt >= OcclusionUpdateIntervalSeconds)
+        {
+            _lastOcclusionCycleStartedAt = now;
+            BeginOcclusionCycle(players);
         }
 
         if (_occlusionCycleInProgress)
         {
             ProcessOcclusionCycleTick();
         }
-
-        if (_pendingPlayerPositionsPayload == null)
-        {
-            return;
-        }
-
-        if (now - _lastPlayerPositionsEmitAt < PlayerPositionsEmitIntervalSeconds)
-        {
-            return;
-        }
-
-        var payload = _pendingPlayerPositionsPayload;
-        _pendingPlayerPositionsPayload = null;
-        _lastPlayerPositionsEmitAt = now;
-        _ = socket.EmitAsync("player-positions", new object[] { "proximity-chat", payload });
     }
 
-    private void BeginOcclusionCycle()
+    private async Task EmitPlayerPositionsAsync(SocketIOClient.SocketIO activeSocket, byte[] payload)
     {
-        ResetOcclusionCycleState();
+        try
+        {
+            await activeSocket.EmitAsync("player-positions", new object[] { "proximity-chat", payload });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to send player positions.");
+        }
+    }
 
-        var players = Utilities.GetPlayers().Where(IsValid).ToList();
-
+    private List<PlayerData> CapturePlayerPositions(IReadOnlyList<CCSPlayerController> players)
+    {
+        var playerList = new List<PlayerData>(players.Count);
         foreach (var player in players)
         {
             var playerPawn = player.PlayerPawn?.Value;
@@ -515,12 +530,30 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 continue;
             }
 
-            playerData.OcclusionFraction.Clear();
+            playerList.Add(playerData);
+        }
+
+        return playerList;
+    }
+
+    private void BeginOcclusionCycle(IReadOnlyList<CCSPlayerController> players)
+    {
+        ResetOcclusionCycleState();
+
+        foreach (var player in players)
+        {
+            var playerPawn = player.PlayerPawn?.Value;
+            var steamId = GetPlayerDataSteamId(player);
+            if (playerPawn == null || !playerPawn.IsValid || steamId == 0 || !PlayerData.TryGetValue(steamId, out var playerData))
+            {
+                continue;
+            }
 
             var origin = new Vector(playerData.OriginX / 10000f, playerData.OriginY / 10000f, playerData.OriginZ / 10000f);
 
             _occlusionSnapshot[steamId] = new OcclusionSnapshot(origin, playerPawn);
             _occlusionCycleSteamIds.Add(steamId);
+            _pendingOcclusionFractions[steamId] = new Dictionary<string, float>();
         }
 
         for (int i = 0; i < _occlusionCycleSteamIds.Count; i++)
@@ -646,27 +679,26 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     private void SetDirectionalOcclusion(ulong sourceSteamId, ulong targetSteamId, float fraction)
     {
-        if (!PlayerData.TryGetValue(sourceSteamId, out var sourceData))
+        if (!_pendingOcclusionFractions.TryGetValue(sourceSteamId, out var fractions))
         {
             return;
         }
 
         float clampedFraction = Math.Clamp(fraction, 0f, 1f);
-        sourceData.OcclusionFraction[targetSteamId.ToString()] = clampedFraction;
+        fractions[targetSteamId.ToString()] = clampedFraction;
     }
 
     private void CompleteOcclusionCycle()
     {
-        var playerList = new List<PlayerData>(_occlusionCycleSteamIds.Count);
+        // Publish the complete cycle together; pose packets must never see a cleared or partial row.
         foreach (var steamId in _occlusionCycleSteamIds)
         {
             if (PlayerData.TryGetValue(steamId, out var data))
             {
-                playerList.Add(data);
+                data.OcclusionFraction = _pendingOcclusionFractions[steamId];
             }
         }
 
-        _pendingPlayerPositionsPayload = MessagePackSerializer.Serialize(playerList);
         ResetOcclusionCycleState();
     }
 
@@ -678,6 +710,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         _occlusionPairs.Clear();
         _occlusionSnapshot.Clear();
         _occlusionCycleSteamIds.Clear();
+        _pendingOcclusionFractions.Clear();
     }
 
     private ulong GetPlayerDataSteamId(CCSPlayerController player)
