@@ -68,6 +68,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     // Trace inputs are read-only; reuse their native handles instead of tracking two new vectors per trace.
     private static readonly Vector OcclusionHullMins = new(-OcclusionHullRadius, -OcclusionHullRadius, -OcclusionHullRadius);
     private static readonly Vector OcclusionHullMaxs = new(OcclusionHullRadius, OcclusionHullRadius, OcclusionHullRadius);
+    // Pairs run sequentially on the game thread; these points never enter a snapshot or result cache.
+    private readonly Vector _occlusionSoundLeft = new();
+    private readonly Vector _occlusionSoundRight = new();
+    private readonly Vector _occlusionListenerLeft = new();
+    private readonly Vector _occlusionListenerRight = new();
     private static readonly TraceOptions OcclusionTraceOptions = new() { InteractsWith = Contents.WorldGeometry | Contents.Solid | Contents.Window, InteractsExclude = Contents.Player | Contents.Npc };
     public int OcclusionTraceQuality { get; private set; } = 5;
 
@@ -644,11 +649,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         var sourceOrigin = source.Origin;
         var targetOrigin = target.Origin;
-        var soundLeft = CalculatePoint(sourceOrigin, targetOrigin, widening, true);
-        var soundRight = CalculatePoint(sourceOrigin, targetOrigin, widening, false);
-        // Use the same sideways offset at both endpoints so matching sides form parallel paths.
-        var listenerLeft = new Vector(targetOrigin.X + (soundLeft.X - sourceOrigin.X), targetOrigin.Y + (soundLeft.Y - sourceOrigin.Y), targetOrigin.Z);
-        var listenerRight = new Vector(targetOrigin.X + (soundRight.X - sourceOrigin.X), targetOrigin.Y + (soundRight.Y - sourceOrigin.Y), targetOrigin.Z);
+        if (quality <= 1)
+        {
+            return Trace(sourceOrigin, targetOrigin, source.IgnoreEntity) ? 1f : 0f;
+        }
+
+        PrepareOcclusionEndpoints(sourceOrigin, targetOrigin, widening,
+            out var soundLeft, out var soundRight, out var listenerLeft, out var listenerRight);
 
         int totalHits = 0;
         int tracesExecuted = 0;
@@ -782,6 +789,36 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public Vector CalculatePoint(Vector a, Vector b, float m, bool positive)
     {
+        var point = new Vector();
+        CalculatePointInto(point, a, b, m, positive);
+        return point;
+    }
+
+    private void PrepareOcclusionEndpoints(Vector sourceOrigin, Vector targetOrigin, float widening,
+        out Vector soundLeft, out Vector soundRight, out Vector listenerLeft, out Vector listenerRight)
+    {
+        soundLeft = _occlusionSoundLeft;
+        soundRight = _occlusionSoundRight;
+        listenerLeft = _occlusionListenerLeft;
+        listenerRight = _occlusionListenerRight;
+        CalculatePointInto(soundLeft, sourceOrigin, targetOrigin, widening, true);
+        CalculatePointInto(soundRight, sourceOrigin, targetOrigin, widening, false);
+        // Both ends use the same sideways direction for quality 2's parallel traces.
+        SetOcclusionPoint(listenerLeft, targetOrigin.X + (soundLeft.X - sourceOrigin.X),
+            targetOrigin.Y + (soundLeft.Y - sourceOrigin.Y), targetOrigin.Z);
+        SetOcclusionPoint(listenerRight, targetOrigin.X + (soundRight.X - sourceOrigin.X),
+            targetOrigin.Y + (soundRight.Y - sourceOrigin.Y), targetOrigin.Z);
+    }
+
+    private static void SetOcclusionPoint(Vector point, float x, float y, float z)
+    {
+        point.X = x;
+        point.Y = y;
+        point.Z = z;
+    }
+
+    private static void CalculatePointInto(Vector point, Vector a, Vector b, float m, bool positive)
+    {
         // CS2 is Z-up: spread the side samples horizontally in the XY plane.
         float dx = a.X - b.X;
         float dy = a.Y - b.Y;
@@ -789,11 +826,12 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (distance == 0f)
         {
             // Vertical/coincident pairs have no horizontal direction; use a fixed sideways spread.
-            return new Vector(a.X + (positive ? m : -m), a.Y, a.Z);
+            SetOcclusionPoint(point, a.X + (positive ? m : -m), a.Y, a.Z);
+            return;
         }
 
         float offset = (positive ? m : -m) / distance;
-        return new Vector(a.X + offset * dy, a.Y - offset * dx, a.Z);
+        SetOcclusionPoint(point, a.X + offset * dy, a.Y - offset * dx, a.Z);
     }
 
     public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)
