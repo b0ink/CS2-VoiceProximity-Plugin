@@ -80,15 +80,24 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private int _occlusionTicksRemaining = 0;
     private int _occlusionPairIndex = 0;
     private int _cycleTraceQuality = 5;
-    private readonly List<(ulong from, ulong to)> _occlusionPairs = new();
-    private readonly Dictionary<ulong, OcclusionSnapshot> _occlusionSnapshot = new();
-    private readonly List<ulong> _occlusionCycleSteamIds = new();
-    private readonly Dictionary<ulong, Dictionary<string, float>> _pendingOcclusionFractions = new();
+    private readonly List<(OcclusionSnapshot from, OcclusionSnapshot to)> _occlusionPairs = new();
+
+    // Persistent per-player trace state, so steady-state cycles allocate no vectors, rows, or key strings.
+    private readonly Dictionary<ulong, OcclusionSnapshot> _occlusionParticipants = new();
+    private readonly List<OcclusionSnapshot> _occlusionCycleParticipants = new();
+    private readonly List<ulong> _occlusionPruneScratch = new();
+    private int _occlusionCycleId = 0;
 
     private sealed class OcclusionSnapshot
     {
         public Vector Origin { get; }
-        public CBaseEntity IgnoreEntity { get; }
+        public CBaseEntity IgnoreEntity { get; set; }
+
+        public ulong SteamId { get; init; }
+        public string SteamIdText { get; set; } = "";
+        public int CycleId { get; set; } = -1;
+        public Dictionary<string, float>? PendingFractions { get; set; }
+        public Dictionary<string, float>? SpareFractions { get; set; }
 
         public OcclusionSnapshot(Vector origin, CBaseEntity ignoreEntity)
         {
@@ -555,6 +564,8 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private void BeginOcclusionCycle(IReadOnlyList<CCSPlayerController> players)
     {
         ResetOcclusionCycleState();
+        PruneOcclusionParticipants();
+        int cycleId = ++_occlusionCycleId;
 
         foreach (var player in players)
         {
@@ -565,18 +576,35 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 continue;
             }
 
-            var origin = new Vector(playerData.OriginX / 10000f, playerData.OriginY / 10000f, playerData.OriginZ / 10000f);
+            if (!_occlusionParticipants.TryGetValue(steamId, out var participant))
+            {
+                // One Vector per player keeps its native handle; a new Vector per cycle is tracked by CounterStrikeSharp until collected.
+                participant = new OcclusionSnapshot(new Vector(), playerPawn) { SteamId = steamId };
+                _occlusionParticipants[steamId] = participant;
+            }
+            else if (participant.CycleId == cycleId)
+            {
+                // Duplicate IDs (e.g. repeated fake-bot names) are traced once.
+                continue;
+            }
 
-            _occlusionSnapshot[steamId] = new OcclusionSnapshot(origin, playerPawn);
-            _occlusionCycleSteamIds.Add(steamId);
-            _pendingOcclusionFractions[steamId] = new Dictionary<string, float>();
+            SetOcclusionPoint(participant.Origin, playerData.OriginX / 10000f, playerData.OriginY / 10000f, playerData.OriginZ / 10000f);
+            participant.IgnoreEntity = playerPawn;
+            participant.SteamIdText = playerData.SteamId;
+            participant.CycleId = cycleId;
+            // Refill the row published two cycles ago; Clear keeps its capacity.
+            var row = participant.SpareFractions ?? new Dictionary<string, float>(players.Count);
+            participant.SpareFractions = null;
+            row.Clear();
+            participant.PendingFractions = row;
+            _occlusionCycleParticipants.Add(participant);
         }
 
-        for (int i = 0; i < _occlusionCycleSteamIds.Count; i++)
+        for (int i = 0; i < _occlusionCycleParticipants.Count; i++)
         {
-            for (int j = i + 1; j < _occlusionCycleSteamIds.Count; j++)
+            for (int j = i + 1; j < _occlusionCycleParticipants.Count; j++)
             {
-                _occlusionPairs.Add((_occlusionCycleSteamIds[i], _occlusionCycleSteamIds[j]));
+                _occlusionPairs.Add((_occlusionCycleParticipants[i], _occlusionCycleParticipants[j]));
             }
         }
 
@@ -628,16 +656,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
     }
 
-    private void ProcessOcclusionPair(ulong fromSteamId, ulong toSteamId)
+    private void ProcessOcclusionPair(OcclusionSnapshot fromSnapshot, OcclusionSnapshot toSnapshot)
     {
-        if (!_occlusionSnapshot.TryGetValue(fromSteamId, out var fromSnapshot) || !_occlusionSnapshot.TryGetValue(toSteamId, out var toSnapshot))
-        {
-            return;
-        }
-
         var fraction = CalculateOcclusionFraction(fromSnapshot, toSnapshot, _cycleTraceQuality);
-        SetDirectionalOcclusion(fromSteamId, toSteamId, fraction);
-        SetDirectionalOcclusion(toSteamId, fromSteamId, fraction);
+        SetDirectionalOcclusion(fromSnapshot, toSnapshot, fraction);
+        SetDirectionalOcclusion(toSnapshot, fromSnapshot, fraction);
     }
 
     private float CalculateOcclusionFraction(OcclusionSnapshot source, OcclusionSnapshot target, int quality)
@@ -695,25 +718,38 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         return (float)totalHits / tracesExecuted;
     }
 
-    private void SetDirectionalOcclusion(ulong sourceSteamId, ulong targetSteamId, float fraction)
+    private static void SetDirectionalOcclusion(OcclusionSnapshot source, OcclusionSnapshot target, float fraction)
     {
-        if (!_pendingOcclusionFractions.TryGetValue(sourceSteamId, out var fractions))
+        if (source.PendingFractions == null)
         {
             return;
         }
 
-        float clampedFraction = Math.Clamp(fraction, 0f, 1f);
-        fractions[targetSteamId.ToString()] = clampedFraction;
+        // The cached key avoids two ulong.ToString() allocations per pair.
+        source.PendingFractions[target.SteamIdText] = Math.Clamp(fraction, 0f, 1f);
     }
 
     private void CompleteOcclusionCycle()
     {
         // Publish the complete cycle together; pose packets must never see a cleared or partial row.
-        foreach (var steamId in _occlusionCycleSteamIds)
+        foreach (var participant in _occlusionCycleParticipants)
         {
-            if (PlayerData.TryGetValue(steamId, out var data))
+            var row = participant.PendingFractions;
+            participant.PendingFractions = null;
+            if (row == null)
             {
-                data.OcclusionFraction = _pendingOcclusionFractions[steamId];
+                continue;
+            }
+
+            if (PlayerData.TryGetValue(participant.SteamId, out var data))
+            {
+                // Poses serialize synchronously on this thread, so the replaced row is free to refill next cycle.
+                participant.SpareFractions = data.OcclusionFraction;
+                data.OcclusionFraction = row;
+            }
+            else
+            {
+                participant.SpareFractions = row;
             }
         }
 
@@ -722,13 +758,43 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     private void ResetOcclusionCycleState()
     {
+        foreach (var participant in _occlusionCycleParticipants)
+        {
+            // An interrupted cycle keeps its unpublished row for reuse.
+            if (participant.PendingFractions != null)
+            {
+                participant.SpareFractions ??= participant.PendingFractions;
+                participant.PendingFractions = null;
+            }
+        }
+
         _occlusionCycleInProgress = false;
         _occlusionTicksRemaining = 0;
         _occlusionPairIndex = 0;
         _occlusionPairs.Clear();
-        _occlusionSnapshot.Clear();
-        _occlusionCycleSteamIds.Clear();
-        _pendingOcclusionFractions.Clear();
+        _occlusionCycleParticipants.Clear();
+    }
+
+    private void PruneOcclusionParticipants()
+    {
+        // Departed players leave PlayerData; drop their pooled trace state as well.
+        if (_occlusionParticipants.Count <= PlayerData.Count)
+        {
+            return;
+        }
+
+        _occlusionPruneScratch.Clear();
+        foreach (var steamId in _occlusionParticipants.Keys)
+        {
+            if (!PlayerData.ContainsKey(steamId))
+            {
+                _occlusionPruneScratch.Add(steamId);
+            }
+        }
+        foreach (var steamId in _occlusionPruneScratch)
+        {
+            _occlusionParticipants.Remove(steamId);
+        }
     }
 
     private ulong GetAuthorizedSteamId(CCSPlayerController player)
@@ -861,40 +927,42 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
             if (GetObserverEntity(player)?.DesignerName == "planted_c4")
             {
-                var vAngle = player.Pawn.Value!.V_angle.Clone();
-                var c4Position = player.Pawn.Value!.AbsOrigin?.Clone();
+                var observerPawn = player.Pawn.Value!;
+                var vAngle = observerPawn.V_angle;
+                var c4Position = observerPawn.AbsOrigin;
 
                 if (c4Position == null)
                 {
                     return;
                 }
 
+                float c4X = c4Position.X;
+                float c4Y = c4Position.Y;
+                float c4Z = c4Position.Z;
+
                 // Calculate third person position when spectating planted c4
-                Vector forward = new();
-                NativeAPI.AngleVectors(vAngle.Handle, forward.Handle, 0, 0);
+                GetForwardVector(vAngle.X, vAngle.Y, out var forwardX, out var forwardY, out var forwardZ);
 
                 // TODO: Could we TraceRay to the c4 to detect if cameraPos is inside an object, and reduce camDistance until the trace is clear?
                 const float camDistance = 100;
-                float lowestZ = c4Position.Z + 25;
+                float lowestZ = c4Z + 25;
+                float cameraZ = c4Z - forwardZ * camDistance;
 
-                Vector offset = new(-forward.X * camDistance, -forward.Y * camDistance, -forward.Z * camDistance);
-                Vector cameraPos = new(c4Position.X + offset.X, c4Position.Y + offset.Y, c4Position.Z + offset.Z);
-
-                OriginX = cameraPos.X;
-                OriginY = cameraPos.Y;
+                OriginX = c4X - forwardX * camDistance;
+                OriginY = c4Y - forwardY * camDistance;
                 // Prevent the camera from going under the floor
-                OriginZ = cameraPos.Z < lowestZ ? lowestZ : cameraPos.Z;
+                OriginZ = cameraZ < lowestZ ? lowestZ : cameraZ;
 
-                LookAtX = c4Position.X;
-                LookAtY = c4Position.Y;
-                LookAtZ = c4Position.Z;
+                LookAtX = c4X;
+                LookAtY = c4Y;
+                LookAtZ = c4Z;
 
                 gotOriginAndAngles = true;
                 spectatingC4 = true;
             }
             else if (observerMode == ObserverMode_t.OBS_MODE_ROAMING)
             {
-                QAngle angles = player.Pawn.Value!.V_angle.Clone();
+                var angles = player.Pawn.Value!.V_angle;
                 Vector? origin = GetFreecamPlayerPosition(player);
                 if (origin != null)
                 {
@@ -902,38 +970,29 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     OriginY = origin.Y;
                     OriginZ = origin.Z;
 
-                    var LookAt = CalculateForward(origin, angles)!;
-
-                    LookAtX = LookAt.X;
-                    LookAtY = LookAt.Y;
-                    LookAtZ = LookAt.Z;
+                    GetLookAtPoint(OriginX, OriginY, OriginZ, angles, out LookAtX, out LookAtY, out LookAtZ);
                     gotOriginAndAngles = true;
                 }
             }
             else if (observerMode == ObserverMode_t.OBS_MODE_CHASE && pawn!.DesignerName == "player")
             {
-                var vAngle = player.Pawn.Value!.V_angle.Clone();
-                var position = GetEyePosition(pawn);
-                if (position == null)
+                var vAngle = player.Pawn.Value!.V_angle;
+                if (!TryGetEyePosition(pawn, out var eyeX, out var eyeY, out var eyeZ))
                 {
                     return;
                 }
 
                 // Calculate third person position when spectating a player in thirdperson view (Chase cam)
-                Vector forward = new();
-                NativeAPI.AngleVectors(vAngle.Handle, forward.Handle, 0, 0);
+                GetForwardVector(vAngle.X, vAngle.Y, out var forwardX, out var forwardY, out var forwardZ);
 
                 const float camDistance = 150; // matches cam_idealdist cvar
 
-                Vector offset = new(-forward.X * camDistance, -forward.Y * camDistance, -forward.Z * camDistance);
-                Vector cameraPos = new(position.X + offset.X, position.Y + offset.Y, position.Z + offset.Z);
-
-                OriginX = cameraPos.X;
-                OriginY = cameraPos.Y;
-                OriginZ = cameraPos.Z;
-                LookAtX = position.X;
-                LookAtY = position.Y;
-                LookAtZ = position.Z;
+                OriginX = eyeX - forwardX * camDistance;
+                OriginY = eyeY - forwardY * camDistance;
+                OriginZ = eyeZ - forwardZ * camDistance;
+                LookAtX = eyeX;
+                LookAtY = eyeY;
+                LookAtZ = eyeZ;
                 gotOriginAndAngles = true;
             }
         }
@@ -945,43 +1004,38 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         if (!gotOriginAndAngles)
         {
-            var origin = GetEyePosition(pawn)?.Clone();
-            var angles = pawn.V_angle.Clone();
-            if (origin == null || angles == null)
+            // Managed math only: no per-tick native QAngle/Vector handles for CounterStrikeSharp to track.
+            if (!TryGetEyePosition(pawn, out OriginX, out OriginY, out OriginZ))
             {
                 return;
             }
 
-            OriginX = origin.X;
-            OriginY = origin.Y;
-            OriginZ = origin.Z;
-
-            var LookAt = CalculateForward(origin, angles)!;
-            LookAtX = LookAt.X;
-            LookAtY = LookAt.Y;
-            LookAtZ = LookAt.Z;
+            GetLookAtPoint(OriginX, OriginY, OriginZ, pawn.V_angle, out LookAtX, out LookAtY, out LookAtZ);
         }
 
         var playerIsAlive = IsAlive(player) ? 1 : 0;
         var Team = player.TeamNum;
+        // Each PlayerName read marshals a new string; read it once per tick.
+        string playerName = player.PlayerName;
 
-        if (!PlayerData.ContainsKey(playerSteamId))
+        if (!PlayerData.TryGetValue(playerSteamId, out var existingData))
         {
-            PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString(), player.PlayerName);
+            existingData = new PlayerData(playerSteamId.ToString(), playerName);
+            PlayerData[playerSteamId] = existingData;
         }
-        if (PlayerData[playerSteamId].IsAdmin == null)
+        if (existingData.IsAdmin == null)
         {
             CheckAdmin(playerSteamId != 0 ? (SteamID)playerSteamId : null);
         }
         if (playerSteamId != 0)
         {
-            SaveData(playerSteamId, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+            SaveData(playerSteamId, playerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
         }
         else
         {
             if (DEBUG_FAKE_PLAYERS)
             {
-                int index = fakeBots.IndexOf(player.PlayerName);
+                int index = fakeBots.IndexOf(playerName);
                 ulong steamid;
                 if (index + 1 < 10)
                 {
@@ -991,32 +1045,33 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 {
                     ulong.TryParse($"100000000000000{index + 1}", out steamid);
                 }
-                SaveData(steamid, player.PlayerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
+                SaveData(steamid, playerName, OriginX, OriginY, OriginZ, LookAtX, LookAtY, LookAtZ, Team, playerIsAlive, spectatingC4);
             }
         }
     }
 
     public void SaveData(ulong playerSteamId, string playerName, float OriginX, float OriginY, float OriginZ, float LookAtX, float LookAtY, float LookAtZ, byte Team, int playerIsAlive, bool spectatingC4)
     {
-        if (!PlayerData.ContainsKey(playerSteamId))
+        // Every PlayerData is created with its key's text, so SteamId never needs re-stringifying per tick.
+        if (!PlayerData.TryGetValue(playerSteamId, out var data))
         {
-            PlayerData[playerSteamId] = new PlayerData(playerSteamId.ToString(), playerName);
+            data = new PlayerData(playerSteamId.ToString(), playerName);
+            PlayerData[playerSteamId] = data;
         }
 
-        PlayerData[playerSteamId].Name = playerName;
-        PlayerData[playerSteamId].SteamId = playerSteamId.ToString();
+        data.Name = playerName;
 
         // Scale up the floats and store them as integers
-        PlayerData[playerSteamId].OriginX = (int)(OriginX * 10000);
-        PlayerData[playerSteamId].OriginY = (int)(OriginY * 10000);
-        PlayerData[playerSteamId].OriginZ = (int)(OriginZ * 10000);
-        PlayerData[playerSteamId].LookAtX = (int)(LookAtX * 10000);
-        PlayerData[playerSteamId].LookAtY = (int)(LookAtY * 10000);
-        PlayerData[playerSteamId].LookAtZ = (int)(LookAtZ * 10000);
+        data.OriginX = (int)(OriginX * 10000);
+        data.OriginY = (int)(OriginY * 10000);
+        data.OriginZ = (int)(OriginZ * 10000);
+        data.LookAtX = (int)(LookAtX * 10000);
+        data.LookAtY = (int)(LookAtY * 10000);
+        data.LookAtZ = (int)(LookAtZ * 10000);
 
-        PlayerData[playerSteamId].Team = Team;
-        PlayerData[playerSteamId].IsAlive = playerIsAlive == 1 ? true : false;
-        PlayerData[playerSteamId].SpectatingC4 = spectatingC4;
+        data.Team = Team;
+        data.IsAlive = playerIsAlive == 1;
+        data.SpectatingC4 = spectatingC4;
     }
 
     [EntityOutputHook("prop_door_rotating", "OnBreak")]

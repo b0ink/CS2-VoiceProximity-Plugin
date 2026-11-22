@@ -136,24 +136,53 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         return false;
     }
 
+    private const float LookAtDistance = 8192f;
+
+    // Managed equivalent of NativeAPI.AngleVectors' forward output (Source angles in degrees).
+    // The native call needs QAngle/Vector handles, which CounterStrikeSharp tracks until the objects are collected.
+    public static void GetForwardVector(float pitchDegrees, float yawDegrees, out float x, out float y, out float z)
+    {
+        var (sinPitch, cosPitch) = MathF.SinCos(pitchDegrees * (MathF.PI / 180f));
+        var (sinYaw, cosYaw) = MathF.SinCos(yawDegrees * (MathF.PI / 180f));
+        x = cosPitch * cosYaw;
+        y = cosPitch * sinYaw;
+        z = -sinPitch;
+    }
+
+    public static void GetLookAtPoint(float originX, float originY, float originZ, QAngle angles, out float x, out float y, out float z)
+    {
+        GetForwardVector(angles.X, angles.Y, out var forwardX, out var forwardY, out var forwardZ);
+        x = originX + forwardX * LookAtDistance;
+        y = originY + forwardY * LookAtDistance;
+        z = originZ + forwardZ * LookAtDistance;
+    }
+
     public Vector? CalculateForward(Vector origin, QAngle angle)
     {
-        Vector _forward = new();
-        NativeAPI.AngleVectors(angle.Handle, _forward.Handle, 0, 0);
-        Vector _endOrigin = new(origin.X + _forward.X * 8192, origin.Y + _forward.Y * 8192, origin.Z + _forward.Z * 8192);
-        return _endOrigin;
+        GetLookAtPoint(origin.X, origin.Y, origin.Z, angle, out var x, out var y, out var z);
+        return new Vector(x, y, z);
+    }
+
+    public bool TryGetEyePosition(CBasePlayerPawn? playerPawn, out float x, out float y, out float z)
+    {
+        x = y = z = 0f;
+        if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null)
+            return false;
+
+        var origin = playerPawn.AbsOrigin;
+        if (origin == null)
+            return false;
+
+        x = origin.X;
+        y = origin.Y;
+        z = origin.Z + playerPawn.ViewOffset.Z;
+        return true;
     }
 
     public Vector? GetEyePosition<T>(T? playerPawn)
         where T : CBasePlayerPawn
     {
-        if (playerPawn == null || !playerPawn.IsValid || playerPawn.CameraServices == null || playerPawn.AbsOrigin == null)
-            return null;
-
-        var origin = playerPawn.AbsOrigin.Clone();
-        var viewOffsetZ = playerPawn.ViewOffset.Z;
-
-        return new Vector(origin.X, origin.Y, origin.Z + viewOffsetZ);
+        return TryGetEyePosition(playerPawn, out var x, out var y, out var z) ? new Vector(x, y, z) : null;
     }
 
     public Vector? GetFreecamPlayerPosition(CCSPlayerController? player)
