@@ -7,6 +7,7 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Cvars;
+using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Extensions;
 using CounterStrikeSharp.API.Modules.Utils;
 using MessagePack;
@@ -37,6 +38,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     public Config Config { get; set; } = new();
 
     public Dictionary<ulong, PlayerData> PlayerData = new();
+    private readonly Dictionary<int, (uint ControllerHandle, ulong SteamId)> _authorizedSteamIds = new();
 
     private CancellationTokenSource? _cts;
     private Task? _socketTask;
@@ -157,9 +159,17 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             }
         });
 
+        RegisterListener<Listeners.OnClientConnected>(slot => _authorizedSteamIds.Remove(slot));
+        RegisterListener<Listeners.OnClientDisconnect>(slot => _authorizedSteamIds.Remove(slot));
+
         RegisterListener<Listeners.OnClientAuthorized>(
             (slot, steamId) =>
             {
+                var player = Utilities.GetPlayerFromSlot(slot);
+                if (player != null && player.IsValid)
+                {
+                    _authorizedSteamIds[slot] = (player.EntityHandle.Raw, steamId.SteamId64);
+                }
                 CheckAdmin(steamId);
             }
         );
@@ -713,9 +723,23 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         _pendingOcclusionFractions.Clear();
     }
 
-    private ulong GetPlayerDataSteamId(CCSPlayerController player)
+    private ulong GetAuthorizedSteamId(CCSPlayerController player)
     {
         var steamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
+        if (steamId != 0)
+        {
+            _authorizedSteamIds[player.Slot] = (player.EntityHandle.Raw, steamId);
+            return steamId;
+        }
+
+        // A temporary null read must not erase an ID already verified for this connection.
+        return _authorizedSteamIds.TryGetValue(player.Slot, out var cached) &&
+            cached.ControllerHandle == player.EntityHandle.Raw ? cached.SteamId : 0;
+    }
+
+    private ulong GetPlayerDataSteamId(CCSPlayerController player)
+    {
+        var steamId = GetAuthorizedSteamId(player);
         if (steamId != 0)
         {
             return steamId;
@@ -792,12 +816,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             return;
         }
 
-        if (player.AuthorizedSteamID?.SteamId64 == null && !DEBUG_FAKE_PLAYERS)
+        var playerSteamId = GetAuthorizedSteamId(player);
+        if (playerSteamId == 0 && !DEBUG_FAKE_PLAYERS)
         {
             return;
         }
-
-        var playerSteamId = (ulong)(player.AuthorizedSteamID?.SteamId64 ?? 0);
 
         float OriginX = 0f;
         float OriginY = 0f;
@@ -931,7 +954,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         }
         if (PlayerData[playerSteamId].IsAdmin == null)
         {
-            CheckAdmin(player.AuthorizedSteamID);
+            CheckAdmin(playerSteamId != 0 ? (SteamID)playerSteamId : null);
         }
         if (playerSteamId != 0)
         {
