@@ -64,10 +64,6 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private const int OcclusionWindowTicks = 6;
     private const int MinOcclusionTraceQuality = 1;
     private const int MaxOcclusionTraceQuality = 5;
-    private const float OcclusionHullRadius = 1f;
-    // Trace inputs are read-only; reuse their native handles instead of tracking two new vectors per trace.
-    private static readonly Vector OcclusionHullMins = new(-OcclusionHullRadius, -OcclusionHullRadius, -OcclusionHullRadius);
-    private static readonly Vector OcclusionHullMaxs = new(OcclusionHullRadius, OcclusionHullRadius, OcclusionHullRadius);
     // Pairs run sequentially on the game thread; these points never enter a snapshot or result cache.
     private readonly Vector _occlusionSoundLeft = new();
     private readonly Vector _occlusionSoundRight = new();
@@ -783,7 +779,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public bool Trace(Vector from, Vector to, CBaseEntity ignore)
     {
-        var result = CounterStrikeTrace.TraceHullShape(from, to, OcclusionHullMins, OcclusionHullMaxs, ignore, OcclusionTraceOptions);
+        var result = CounterStrikeTrace.TraceEndShape(from, to, ignore, OcclusionTraceOptions);
         return result.DidHit();
     }
 
