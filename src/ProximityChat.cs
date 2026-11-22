@@ -64,6 +64,10 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private const int OcclusionWindowTicks = 6;
     private const int MinOcclusionTraceQuality = 1;
     private const int MaxOcclusionTraceQuality = 5;
+    private const float OcclusionHullRadius = 1f;
+    // Trace inputs are read-only; reuse their native handles instead of tracking two new vectors per trace.
+    private static readonly Vector OcclusionHullMins = new(-OcclusionHullRadius, -OcclusionHullRadius, -OcclusionHullRadius);
+    private static readonly Vector OcclusionHullMaxs = new(OcclusionHullRadius, OcclusionHullRadius, OcclusionHullRadius);
     private static readonly TraceOptions OcclusionTraceOptions = new() { InteractsWith = Contents.WorldGeometry | Contents.Solid | Contents.Window, InteractsExclude = Contents.Player | Contents.Npc };
     public int OcclusionTraceQuality { get; private set; } = 5;
 
@@ -772,12 +776,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public bool Trace(Vector from, Vector to, CBaseEntity ignore)
     {
-        float hullRadius = 1.0f;
-
-        Vector mins = new Vector(-hullRadius, -hullRadius, -hullRadius);
-        Vector maxs = new Vector(hullRadius, hullRadius, hullRadius);
-
-        var result = CounterStrikeTrace.TraceHullShape(from, to, mins, maxs, ignore, OcclusionTraceOptions);
+        var result = CounterStrikeTrace.TraceHullShape(from, to, OcclusionHullMins, OcclusionHullMaxs, ignore, OcclusionTraceOptions);
         return result.DidHit();
     }
 
