@@ -139,10 +139,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     DoorRotations[doorId] = currentRotation;
 
                     var origin = door.AbsOrigin.Clone();
-                    Task.Run(() =>
-                    {
-                        socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", currentRotation });
-                    });
+                    QueueSocketEmit("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", currentRotation });
                 }
             }
 
@@ -398,10 +395,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
             return;
         }
         Console.WriteLine($"Notifying server of current map: {CurrentMap}");
-        Task.Run(async () =>
-        {
-            await socket.EmitAsync("current-map", new object[] { "proximity-chat", CurrentMap });
-        });
+        QueueSocketEmit("current-map", new object[] { "proximity-chat", CurrentMap });
     }
 
     private void NotifyServerConfig()
@@ -414,10 +408,46 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         {
             Config.Reload();
             var payload = MessagePackSerializer.Serialize(Config);
-            Task.Run(async () =>
+            QueueSocketEmit("server-config", new object[] { "proximity-chat", payload });
+        });
+    }
+
+    // SocketIOClient 4.0.5 does not serialize emits. A binary event is a text header followed by an attachment written in
+    // 8 KB websocket fragments; a concurrent emit lands between them (or inside them as a continuation frame), corrupting
+    // the stream until the API drops the connection. Every emit from this plugin must go through this gate.
+    private readonly SemaphoreSlim _socketEmitGate = new(1, 1);
+
+    private async Task EmitSerializedAsync(SocketIOClient.SocketIO activeSocket, string eventName, object[] data)
+    {
+        await _socketEmitGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await activeSocket.EmitAsync(eventName, data).ConfigureAwait(false);
+        }
+        finally
+        {
+            _socketEmitGate.Release();
+        }
+    }
+
+    private void QueueSocketEmit(string eventName, object[] data)
+    {
+        var activeSocket = socket;
+        if (activeSocket == null)
+        {
+            return;
+        }
+
+        Task.Run(async () =>
+        {
+            try
             {
-                await socket.EmitAsync("server-config", new object[] { "proximity-chat", payload });
-            });
+                await EmitSerializedAsync(activeSocket, eventName, data);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to send {EventName}.", eventName);
+            }
         });
     }
 
@@ -493,7 +523,10 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         if (_playerPositionsEmitTask.IsCompleted)
         {
             var payload = MessagePackSerializer.Serialize(playerList);
-            _playerPositionsEmitTask = EmitPlayerPositionsAsync(socket, payload);
+            var activeSocket = socket;
+            // EmitAsync's synchronous prologue (packet building, websocket send setup) cost ~0.4 ms per tick on the game thread.
+            // Only one pose send is in flight, and the emit gate keeps other events from interleaving with it.
+            _playerPositionsEmitTask = Task.Run(() => EmitPlayerPositionsAsync(activeSocket, payload));
         }
 
         if (!_occlusionCycleInProgress && now - _lastOcclusionCycleStartedAt >= OcclusionUpdateIntervalSeconds)
@@ -512,7 +545,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     {
         try
         {
-            await activeSocket.EmitAsync("player-positions", new object[] { "proximity-chat", payload });
+            await EmitSerializedAsync(activeSocket, "player-positions", new object[] { "proximity-chat", payload });
         }
         catch (Exception ex)
         {
@@ -1091,10 +1124,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 AddTimer(0.1f, () =>
                 {
                     DoorRotations[doorKey] = 999;
-                    Task.Run(() =>
-                    {
-                        socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
-                    });
+                    QueueSocketEmit("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
                 });
             }
         }
