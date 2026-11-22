@@ -66,6 +66,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private const int MaxOcclusionTraceQuality = 5;
     private const float OcclusionOffsetWallClearance = 1f;
 
+    // Pairs farther apart than this use quality 1 (one centre ray, no offset probes); nearer pairs keep the configured quality.
+    // With the default 2000-unit volume/occlusion falloff, occlusion at this range only decides faintly audible vs muffled.
+    private const float OcclusionFarPairDistance = 2500f;
+    private const float OcclusionFarPairDistanceSquared = OcclusionFarPairDistance * OcclusionFarPairDistance;
+
     // Pairs run sequentially on the game thread; these points never enter a snapshot or result cache.
     private readonly Vector _occlusionSoundLeft = new();
     private readonly Vector _occlusionSoundRight = new();
@@ -692,9 +697,18 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     private void ProcessOcclusionPair(OcclusionSnapshot fromSnapshot, OcclusionSnapshot toSnapshot)
     {
-        var fraction = CalculateOcclusionFraction(fromSnapshot, toSnapshot, _cycleTraceQuality);
+        int quality = IsFarOcclusionPair(fromSnapshot.Origin, toSnapshot.Origin) ? MinOcclusionTraceQuality : _cycleTraceQuality;
+        var fraction = CalculateOcclusionFraction(fromSnapshot, toSnapshot, quality);
         SetDirectionalOcclusion(fromSnapshot, toSnapshot, fraction);
         SetDirectionalOcclusion(toSnapshot, fromSnapshot, fraction);
+    }
+
+    private static bool IsFarOcclusionPair(Vector a, Vector b)
+    {
+        float dx = a.X - b.X;
+        float dy = a.Y - b.Y;
+        float dz = a.Z - b.Z;
+        return dx * dx + dy * dy + dz * dz > OcclusionFarPairDistanceSquared;
     }
 
     private float CalculateOcclusionFraction(OcclusionSnapshot source, OcclusionSnapshot target, int quality)
