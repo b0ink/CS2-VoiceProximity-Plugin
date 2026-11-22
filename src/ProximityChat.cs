@@ -282,77 +282,66 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     _lastOcclusionCycleStartedAt = float.NegativeInfinity;
                     ResetOcclusionCycleState();
 
-                    AddTimer(
-                        3,
-                        () =>
-                        {
-                            NotifyMapChange();
-                            NotifyServerConfig();
-                        }
-                    );
+                    AddTimer(3, () =>
+                    {
+                        NotifyMapChange();
+                        NotifyServerConfig();
+                    });
                 });
             };
 
-            socket.On(
-                "server-config",
-                (data) =>
+            socket.On("server-config", (data) =>
+            {
+                try
                 {
-                    try
+                    var bytes = data.GetValue<byte[]>(0);
+                    if (bytes != null)
                     {
-                        var bytes = data.GetValue<byte[]>(0);
-                        if (bytes != null)
+                        var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
+                        Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
+                        Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
+                        Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
+                        Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
+                        Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
+                        Config.OcclusionNear = updatedConfig.OcclusionNear;
+                        Config.OcclusionFar = updatedConfig.OcclusionFar;
+                        Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
+                        Config.OcclusionFalloffFactor = updatedConfig.OcclusionFalloffFactor;
+                        Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
+                        Config.DeadVoiceFilterFrequency = updatedConfig.DeadVoiceFilterFrequency;
+                        Config.SpectatorsCanTalk = updatedConfig.SpectatorsCanTalk;
+
+                        Server.NextFrame(() =>
                         {
-                            var updatedConfig = MessagePackSerializer.Deserialize<Config>(bytes);
-                            Config.DeadPlayerMuteDelay = updatedConfig.DeadPlayerMuteDelay;
-                            Config.AllowDeadTeamVoice = updatedConfig.AllowDeadTeamVoice;
-                            Config.AllowSpectatorC4Voice = updatedConfig.AllowSpectatorC4Voice;
-                            Config.VolumeFalloffFactor = updatedConfig.VolumeFalloffFactor;
-                            Config.VolumeMaxDistance = updatedConfig.VolumeMaxDistance;
-                            Config.OcclusionNear = updatedConfig.OcclusionNear;
-                            Config.OcclusionFar = updatedConfig.OcclusionFar;
-                            Config.OcclusionEndDist = updatedConfig.OcclusionEndDist;
-                            Config.OcclusionFalloffFactor = updatedConfig.OcclusionFalloffFactor;
-                            Config.AlwaysHearVisiblePlayers = updatedConfig.AlwaysHearVisiblePlayers;
-                            Config.DeadVoiceFilterFrequency = updatedConfig.DeadVoiceFilterFrequency;
-                            Config.SpectatorsCanTalk = updatedConfig.SpectatorsCanTalk;
-
-                            Server.NextFrame(() =>
-                            {
-                                Config.Update();
-                            });
-                            Console.WriteLine($"Config has been updated by client");
-                        }
+                            Config.Update();
+                        });
+                        Console.WriteLine($"Config has been updated by client");
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex.Message);
-                    }
-
-                    return Task.CompletedTask;
                 }
-            );
-
-            socket.On(
-                "server-restart-warning",
-                (data) =>
+                catch (Exception ex)
                 {
-                    var payload = data.GetValue<ServerRestartWarning>(0);
-                    if (payload == null)
-                    {
-                        return Task.CompletedTask;
-                    }
+                    Logger.LogError(ex.Message);
+                }
 
-                    Server.NextFrame(() =>
-                    {
-                        Logger.LogWarning($"Socket server will restart in {payload.minutes * 60} seconds. Users will reconnect automatically.");
-                        Server.PrintToChatAll(
-                            $" {ChatColors.Green}Proximity Chat {ChatColors.Default}| {ChatColors.Red}API server will restart in {ChatColors.Default}{payload.minutes * 60} {ChatColors.Red}seconds. Users will reconnect automatically."
-                        );
-                    });
+                return Task.CompletedTask;
+            });
 
+            socket.On("server-restart-warning", (data) =>
+            {
+                var payload = data.GetValue<ServerRestartWarning>(0);
+                if (payload == null)
+                {
                     return Task.CompletedTask;
                 }
-            );
+
+                Server.NextFrame(() =>
+                {
+                    Logger.LogWarning($"Socket server will restart in {payload.minutes * 60} seconds. Users will reconnect automatically.");
+                    Server.PrintToChatAll($" {ChatColors.Green}Proximity Chat {ChatColors.Default}| {ChatColors.Red}API server will restart in {ChatColors.Default}{payload.minutes * 60} {ChatColors.Red}seconds. Users will reconnect automatically.");
+                });
+
+                return Task.CompletedTask;
+            });
 
             socket.OnDisconnected += (sender, e) =>
             {
@@ -371,29 +360,23 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                     _lastOcclusionCycleStartedAt = float.NegativeInfinity;
                     if (tryReconnectSocket)
                     {
-                        AddTimer(
-                            1,
-                            () =>
-                            {
-                                InitServer();
-                            }
-                        );
+                        AddTimer(1, () =>
+                        {
+                            InitServer();
+                        });
                     }
                 });
             };
 
             // Custom errors from the API
-            socket.On(
-                "exception",
-                (error) =>
-                {
-                    var payload = error.GetValue<ExceptionPayload>(0);
-                    Log(payload?.message ?? "Unknown socket exception occurred.", ConsoleColor.Red);
-                    tryReconnectSocket = false;
+            socket.On("exception", (error) =>
+            {
+                var payload = error.GetValue<ExceptionPayload>(0);
+                Log(payload?.message ?? "Unknown socket exception occurred.", ConsoleColor.Red);
+                tryReconnectSocket = false;
 
-                    return Task.CompletedTask;
-                }
-            );
+                return Task.CompletedTask;
+            });
 
             await socket.ConnectAsync();
         }
@@ -1050,17 +1033,14 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
                 var origin = door.AbsOrigin.Clone();
                 var doorKey = GetDoorKey(origin);
 
-                AddTimer(
-                    0.1f,
-                    () =>
+                AddTimer(0.1f, () =>
+                {
+                    DoorRotations[doorKey] = 999;
+                    Task.Run(() =>
                     {
-                        DoorRotations[doorKey] = 999;
-                        Task.Run(() =>
-                        {
-                            socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
-                        });
-                    }
-                );
+                        socket?.EmitAsync("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
+                    });
+                });
             }
         }
         return HookResult.Continue;
