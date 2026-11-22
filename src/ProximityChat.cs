@@ -642,8 +642,9 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         var targetOrigin = target.Origin;
         var soundLeft = CalculatePoint(sourceOrigin, targetOrigin, widening, true);
         var soundRight = CalculatePoint(sourceOrigin, targetOrigin, widening, false);
-        var listenerLeft = CalculatePoint(targetOrigin, sourceOrigin, widening, true);
-        var listenerRight = CalculatePoint(targetOrigin, sourceOrigin, widening, false);
+        // Use the same sideways offset at both endpoints so matching sides form parallel paths.
+        var listenerLeft = new Vector(targetOrigin.X + (soundLeft.X - sourceOrigin.X), targetOrigin.Y + (soundLeft.Y - sourceOrigin.Y), targetOrigin.Z);
+        var listenerRight = new Vector(targetOrigin.X + (soundRight.X - sourceOrigin.X), targetOrigin.Y + (soundRight.Y - sourceOrigin.Y), targetOrigin.Z);
 
         int totalHits = 0;
         int tracesExecuted = 0;
@@ -782,31 +783,18 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public Vector CalculatePoint(Vector a, Vector b, float m, bool positive)
     {
-        // Distance in XZ plane
+        // CS2 is Z-up: spread the side samples horizontally in the XY plane.
         float dx = a.X - b.X;
-        float dz = a.Z - b.Z;
-
-        float n = MathF.Sqrt(dx * dx + dz * dz);
-        if (n == 0f)
-            return new Vector(a.X, a.Y, a.Z); // avoid divide-by-zero
-
-        float mn = m / n;
-
-        float x,
-            z;
-
-        if (positive)
+        float dy = a.Y - b.Y;
+        float distance = MathF.Sqrt(dx * dx + dy * dy);
+        if (distance == 0f)
         {
-            x = a.X + mn * (a.Z - b.Z);
-            z = a.Z - mn * (a.X - b.X);
-        }
-        else
-        {
-            x = a.X - mn * (a.Z - b.Z);
-            z = a.Z + mn * (a.X - b.X);
+            // Vertical/coincident pairs have no horizontal direction; use a fixed sideways spread.
+            return new Vector(a.X + (positive ? m : -m), a.Y, a.Z);
         }
 
-        return new Vector(x, a.Y, z);
+        float offset = (positive ? m : -m) / distance;
+        return new Vector(a.X + offset * dy, a.Y - offset * dx, a.Z);
     }
 
     public void SavePlayerData(CCSPlayerController? player, bool useObserverPawn)
