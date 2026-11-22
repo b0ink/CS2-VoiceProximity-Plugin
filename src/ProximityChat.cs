@@ -55,8 +55,9 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
     public Vector debugPlayerPosition = new Vector();
 
-    public Dictionary<string, int> DoorRotations = new();
-    public List<CPropDoorRotating?> DoorEntities = new();
+    // Doors are disabled for now: no door entities are collected and no door-rotation events are sent.
+    // public Dictionary<string, int> DoorRotations = new();
+    // public List<CPropDoorRotating?> DoorEntities = new();
 
     public List<string?> fakeBots = new();
 
@@ -124,30 +125,31 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         RegisterListener<Listeners.OnTick>(() =>
         {
-            foreach (var door in DoorEntities)
-            {
-                if (door == null || !door.IsValid || door.AbsOrigin == null || door.AbsRotation == null)
-                {
-                    continue;
-                }
-                var rotation = door.AbsRotation.Clone();
-                var doorId = GetDoorKey(door.AbsOrigin);
-                int currentRotation = (int)Math.Floor(rotation.Y);
-                if (!DoorRotations.ContainsKey(doorId))
-                {
-                    DoorRotations[doorId] = currentRotation;
-                }
-
-                int lastDoorRotation = DoorRotations[doorId];
-
-                if (currentRotation != lastDoorRotation)
-                {
-                    DoorRotations[doorId] = currentRotation;
-
-                    var origin = door.AbsOrigin.Clone();
-                    QueueSocketEmit("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", currentRotation });
-                }
-            }
+            // Doors are disabled for now.
+            // foreach (var door in DoorEntities)
+            // {
+            //     if (door == null || !door.IsValid || door.AbsOrigin == null || door.AbsRotation == null)
+            //     {
+            //         continue;
+            //     }
+            //     var rotation = door.AbsRotation.Clone();
+            //     var doorId = GetDoorKey(door.AbsOrigin);
+            //     int currentRotation = (int)Math.Floor(rotation.Y);
+            //     if (!DoorRotations.ContainsKey(doorId))
+            //     {
+            //         DoorRotations[doorId] = currentRotation;
+            //     }
+            //
+            //     int lastDoorRotation = DoorRotations[doorId];
+            //
+            //     if (currentRotation != lastDoorRotation)
+            //     {
+            //         DoorRotations[doorId] = currentRotation;
+            //
+            //         var origin = door.AbsOrigin.Clone();
+            //         QueueSocketEmit("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", currentRotation });
+            //     }
+            // }
 
             var now = Server.CurrentTime;
             TickPlayerPositionPipeline(now);
@@ -1162,49 +1164,51 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         data.SpectatingC4 = spectatingC4;
     }
 
-    [EntityOutputHook("prop_door_rotating", "OnBreak")]
-    public HookResult OnBreak(CEntityIOOutput output, string name, CEntityInstance activator, CEntityInstance caller, CVariant value, float delay)
-    {
-        // This hook will run twice when a door is blown up by a nade
-        // In one hook the activator will be the nade, second hook the door will also be the activator
-
-        if (caller.IsValid && caller.DesignerName == "prop_door_rotating" && activator.IsValid && activator.DesignerName == "prop_door_rotating")
-        {
-            var door = caller.As<CPropDoorRotating>();
-            if (door != null && door.IsValid && door.AbsOrigin != null)
-            {
-                var origin = door.AbsOrigin.Clone();
-                var doorKey = GetDoorKey(origin);
-
-                AddTimer(0.1f, () =>
-                {
-                    DoorRotations[doorKey] = 999;
-                    QueueSocketEmit("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
-                });
-            }
-        }
-        return HookResult.Continue;
-    }
+    // Doors are disabled for now.
+    // [EntityOutputHook("prop_door_rotating", "OnBreak")]
+    // public HookResult OnBreak(CEntityIOOutput output, string name, CEntityInstance activator, CEntityInstance caller, CVariant value, float delay)
+    // {
+    //     // This hook will run twice when a door is blown up by a nade
+    //     // In one hook the activator will be the nade, second hook the door will also be the activator
+    //
+    //     if (caller.IsValid && caller.DesignerName == "prop_door_rotating" && activator.IsValid && activator.DesignerName == "prop_door_rotating")
+    //     {
+    //         var door = caller.As<CPropDoorRotating>();
+    //         if (door != null && door.IsValid && door.AbsOrigin != null)
+    //         {
+    //             var origin = door.AbsOrigin.Clone();
+    //             var doorKey = GetDoorKey(origin);
+    //
+    //             AddTimer(0.1f, () =>
+    //             {
+    //                 DoorRotations[doorKey] = 999;
+    //                 QueueSocketEmit("door-rotation", new object[] { "proximity-chat", $"{origin.X} {origin.Y} {origin.Z}", 999 });
+    //             });
+    //         }
+    //     }
+    //     return HookResult.Continue;
+    // }
 
     [GameEventHandler]
     public HookResult Event_RoundStart(EventRoundStart @event, GameEventInfo info)
     {
-        DoorRotations.Clear();
-
-        var doors = new List<CPropDoorRotating>();
-        doors.AddRange(Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("prop_door_rotating"));
-        doors.AddRange(Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("func_door_rotating"));
-
-        foreach (var door in doors)
-        {
-            if (door.AbsOrigin == null || door.AbsRotation == null)
-            {
-                continue;
-            }
-            DoorEntities.Add(door);
-            var key = GetDoorKey(door.AbsOrigin);
-            DoorRotations[key] = 999;
-        }
+        // Doors are disabled for now.
+        // DoorRotations.Clear();
+        //
+        // var doors = new List<CPropDoorRotating>();
+        // doors.AddRange(Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("prop_door_rotating"));
+        // doors.AddRange(Utilities.FindAllEntitiesByDesignerName<CPropDoorRotating>("func_door_rotating"));
+        //
+        // foreach (var door in doors)
+        // {
+        //     if (door.AbsOrigin == null || door.AbsRotation == null)
+        //     {
+        //         continue;
+        //     }
+        //     DoorEntities.Add(door);
+        //     var key = GetDoorKey(door.AbsOrigin);
+        //     DoorRotations[key] = 999;
+        // }
 
         fakeBots.Clear();
         foreach (var bot in Utilities.GetPlayers().Where(IsValid).Where(p => p.IsBot))

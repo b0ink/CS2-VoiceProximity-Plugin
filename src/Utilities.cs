@@ -194,10 +194,11 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         return player.Pawn.Value!.CBodyComponent?.SceneNode?.GetSkeletonInstance().AbsOrigin.Clone() ?? null;
     }
 
-    public string GetDoorKey(Vector origin)
-    {
-        return $"{(int)origin.X} {(int)origin.Y} {(int)origin.Z}";
-    }
+    // Doors are disabled for now.
+    // public string GetDoorKey(Vector origin)
+    // {
+    //     return $"{(int)origin.X} {(int)origin.Y} {(int)origin.Z}";
+    // }
 }
 
 static class VectorExtensions
