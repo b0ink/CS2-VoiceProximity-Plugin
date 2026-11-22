@@ -64,6 +64,7 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
     private const int OcclusionWindowTicks = 6;
     private const int MinOcclusionTraceQuality = 1;
     private const int MaxOcclusionTraceQuality = 5;
+    private const float OcclusionOffsetWallClearance = 1f;
 
     // Pairs run sequentially on the game thread; these points never enter a snapshot or result cache.
     private readonly Vector _occlusionSoundLeft = new();
@@ -709,6 +710,13 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
 
         PrepareOcclusionEndpoints(sourceOrigin, targetOrigin, widening, out var soundLeft, out var soundRight, out var listenerLeft, out var listenerRight);
 
+        // Pull each side endpoint back from nearby walls once, then reuse it in every sample that touches it.
+        // Sweeping from the eye also prevents samples from jumping through a thin wall into free space beyond it.
+        soundLeft = ClampOcclusionSample(sourceOrigin, soundLeft, source.IgnoreEntity);
+        soundRight = ClampOcclusionSample(sourceOrigin, soundRight, source.IgnoreEntity);
+        listenerLeft = ClampOcclusionSample(targetOrigin, listenerLeft, target.IgnoreEntity);
+        listenerRight = ClampOcclusionSample(targetOrigin, listenerRight, target.IgnoreEntity);
+
         int totalHits = 0;
         int tracesExecuted = 0;
 
@@ -875,10 +883,43 @@ public partial class ProximityChat : BasePlugin, IPluginConfig<Config>
         return fakeSteamId;
     }
 
+    private static TraceResult TraceOcclusion(Vector from, Vector to, CBaseEntity ignore)
+    {
+        return CounterStrikeTrace.TraceEndShape(from, to, ignore, OcclusionTraceOptions);
+    }
+
     public bool Trace(Vector from, Vector to, CBaseEntity ignore)
     {
-        var result = CounterStrikeTrace.TraceEndShape(from, to, ignore, OcclusionTraceOptions);
-        return result.DidHit();
+        return TraceOcclusion(from, to, ignore).DidHit();
+    }
+
+    private static Vector ClampOcclusionSample(Vector origin, Vector desired, CBaseEntity ignore)
+    {
+        float dx = desired.X - origin.X;
+        float dy = desired.Y - origin.Y;
+        float dz = desired.Z - origin.Z;
+        float length = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+        if (length <= 0.001f)
+        {
+            return origin;
+        }
+
+        var result = TraceOcclusion(origin, desired, ignore);
+        if (!result.DidHit())
+        {
+            return desired;
+        }
+
+        if (result.IsAllSolid || !float.IsFinite(result.Fraction))
+        {
+            return origin;
+        }
+
+        // Fraction is the ray's travel, so stop slightly before contact. Endpoints are the reusable per-pair vectors.
+        float safeDistance = Math.Max(0f, length * Math.Clamp(result.Fraction, 0f, 1f) - OcclusionOffsetWallClearance);
+        float scale = safeDistance / length;
+        SetOcclusionPoint(desired, origin.X + dx * scale, origin.Y + dy * scale, origin.Z + dz * scale);
+        return desired;
     }
 
     public Vector CalculatePoint(Vector a, Vector b, float m, bool positive)
